@@ -667,6 +667,10 @@ async function handleAuth() {
   clearAuthMsgs();
 
   if (!email || !password) { showAuthErr('Please fill in all fields.'); return; }
+  if (!email.toLowerCase().endsWith('@straiker.ai')) {
+    showAuthErr('Access is restricted to @straiker.ai accounts only.');
+    return;
+  }
 
   const btn = document.getElementById('authBtn');
   btn.disabled = true; btn.textContent = 'Please wait…';
@@ -710,7 +714,24 @@ async function demoMode() {
 }
 
 async function launchApp() {
-  if (!sbClient|| !currentUser) return;
+  if (!sbClient || !currentUser) return;
+
+  // Safety net: enforce domain restriction even for existing sessions.
+  // This handles edge cases like session restoration on page load.
+  if (!currentUser.email?.toLowerCase().endsWith('@straiker.ai')) {
+    await sbClient.auth.signOut();
+    showAuthErr('Access is restricted to @straiker.ai accounts only.');
+    return;
+  }
+
+  // Also require the email to be confirmed (Supabase sets this after the user
+  // clicks the confirmation link, so unverified addresses can't get in).
+  if (!currentUser.email_confirmed_at) {
+    await sbClient.auth.signOut();
+    showAuthErr('Please confirm your email before signing in. Check your @straiker.ai inbox.');
+    return;
+  }
+
   document.getElementById('userEmailChip').textContent = currentUser.email;
   await loadProfile();
   await loadLeads();
