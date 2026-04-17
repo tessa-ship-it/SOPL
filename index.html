@@ -1519,6 +1519,7 @@ function parseQRContent(raw) {
 }
 
 function applyBadgeScan() {
+  try {
   const parsed = lastBadgeScan;
   if (!parsed) { toast('No badge scan data found — please scan again.'); return; }
 
@@ -1568,6 +1569,14 @@ function applyBadgeScan() {
 
   // Always auto-run enrichment — user just hits Save when results look good
   runEnrichment();
+
+  } catch(err) {
+    console.error('applyBadgeScan error:', err);
+    toast('⚠️ Badge scan error: ' + (err.message || err));
+    // Make sure modal is closed even if something went wrong
+    try { dismissScanner(); } catch(e) {}
+    try { switchView('leads'); } catch(e) {}
+  }
 }
 
 function startQRScanner() {
@@ -1580,10 +1589,12 @@ function startQRScanner() {
     { facingMode: 'environment' },
     { fps: 10, qrbox: { width: 250, height: 250 } },
     (decodedText) => {
-      stopQRScanner();
+      // Stop scanner first, then defer applyBadgeScan so the library
+      // finishes its own cleanup before we tear down the modal DOM.
+      try { html5QrScanner.stop().catch(()=>{}); } catch(e) {}
+      html5QrScanner = null;
       lastBadgeScan = parseQRContent(decodedText);
-      // Go straight to enrichment — no intermediate preview step
-      applyBadgeScan();
+      setTimeout(applyBadgeScan, 150);
     },
     () => {} // scan failure - silent
   ).catch(() => {
