@@ -597,7 +597,7 @@ create policy "Own leads" on leads for all using (auth.uid() = user_id);</pre>
     <div class="form-group" style="margin-bottom:20px"><label>Date</label><input type="date" id="newEventDate"/></div>
     <div class="modal-actions">
       <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="createEvent()">Create & Go Live</button>
+      <button class="btn btn-primary" onclick="saveNewEvent()">Create & Go Live</button>
     </div>
   </div>
 </div>
@@ -1353,7 +1353,7 @@ async function loadEvents() {
   populateEventDropdown();
 }
 
-async function createEvent() {
+async function saveNewEvent() {
   const name = document.getElementById('newEventName').value.trim();
   if (!name) { toast('Event name is required'); return; }
   const evt = {
