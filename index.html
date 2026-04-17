@@ -1765,49 +1765,56 @@ async function handleCardImage(e) {
       .filter(l => l.length >= 3 && letterRatio(l) >= 0.55)
       // Deduplicate near-identical chips
       .filter((l, i, arr) => !arr.slice(0,i).some(prev => prev.toLowerCase() === l.toLowerCase()));
-    const chips = chipLines.map(l =>
-      `<button type="button" onclick="ocrFillField('${esc(l)}')"
-        style="background:var(--surface2);border:1px solid var(--border);border-radius:20px;
-               padding:5px 12px;font-size:0.78rem;color:var(--text);cursor:pointer;
-               white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis"
-        title="${esc(l)}">${esc(l.length > 40 ? l.slice(0,38)+'…' : l)}</button>`
-    ).join('');
+    // Full-width chip rows — large tap targets, easy on mobile
+    const chips = chipLines.length
+      ? chipLines.map(l =>
+          `<button type="button" onclick="ocrFillField('${esc(l)}')"
+            style="width:100%;text-align:left;background:var(--surface);
+                   border:1px solid var(--border);border-radius:10px;
+                   padding:12px 14px;font-size:0.9rem;color:var(--text);
+                   cursor:pointer;min-height:44px;line-height:1.3;
+                   transition:border-color 0.15s,background 0.15s"
+            onmouseenter="this.style.borderColor='var(--accent)'"
+            onmouseleave="this.style.borderColor='var(--border)'"
+            >${esc(l)}</button>`
+        ).join('')
+      : `<div style="color:var(--muted);font-size:0.85rem;padding:12px 0">No text detected — try a clearer, straight-on photo with good lighting.</div>`;
+
+    // Field rows — single column, large inputs, accent highlight on active
+    const fields = [
+      { id:'ocrName',    label:'Name',    type:'text',  val: parsed.name },
+      { id:'ocrCompany', label:'Company', type:'text',  val: parsed.company },
+      { id:'ocrEmail',   label:'Email',   type:'email', val: parsed.email },
+      { id:'ocrPhone',   label:'Phone',   type:'tel',   val: parsed.phone },
+      { id:'ocrTitle',   label:'Title',   type:'text',  val: parsed.title },
+    ].map(f => `
+      <div id="ocrFieldWrap-${f.id}" style="margin-bottom:10px;border-radius:12px;padding:2px;transition:background 0.15s">
+        <label style="font-size:0.75rem;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">${f.label}</label>
+        <input type="${f.type}" id="${f.id}" value="${esc(f.val)}"
+          onfocus="ocrSetFocus('${f.id}')"
+          placeholder="Tap text above to fill, or type"
+          style="width:100%;font-size:1rem;padding:13px 14px"/>
+      </div>`).join('');
 
     result.style.display = 'block';
     result.innerHTML = `
-      <div style="color:var(--success);font-weight:700;margin-bottom:4px">✅ Scanned — tap a line to fill a field</div>
-      <div style="color:var(--muted);font-size:0.78rem;margin-bottom:12px">Tap a field to select it, then tap a detected line to fill it in.</div>
-
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;padding:10px;background:var(--surface2);border-radius:10px">
-        ${chips || '<span style="color:var(--muted);font-size:0.8rem">No text detected — try a clearer photo</span>'}
+      <div style="color:var(--success);font-weight:700;font-size:1rem;margin-bottom:2px">✅ Scanned!</div>
+      <div style="color:var(--muted);font-size:0.8rem;margin-bottom:12px">
+        Tap a field → then tap the correct line to fill it.
       </div>
 
-      <div class="form-grid" style="margin-bottom:16px">
-        <div class="form-group">
-          <label>Name <span id="ocrFocusBadge-ocrName" style="font-size:0.7rem;color:var(--accent);display:none">← filling here</span></label>
-          <input type="text" id="ocrName" value="${esc(parsed.name)}" onfocus="ocrSetFocus('ocrName')" placeholder="Tap a line above"/>
-        </div>
-        <div class="form-group">
-          <label>Company <span id="ocrFocusBadge-ocrCompany" style="font-size:0.7rem;color:var(--accent);display:none">← filling here</span></label>
-          <input type="text" id="ocrCompany" value="${esc(parsed.company)}" onfocus="ocrSetFocus('ocrCompany')" placeholder="Tap a line above"/>
-        </div>
-        <div class="form-group">
-          <label>Email <span id="ocrFocusBadge-ocrEmail" style="font-size:0.7rem;color:var(--accent);display:none">← filling here</span></label>
-          <input type="email" id="ocrEmail" value="${esc(parsed.email)}" onfocus="ocrSetFocus('ocrEmail')" placeholder="Tap a line above"/>
-        </div>
-        <div class="form-group">
-          <label>Phone <span id="ocrFocusBadge-ocrPhone" style="font-size:0.7rem;color:var(--accent);display:none">← filling here</span></label>
-          <input type="tel" id="ocrPhone" value="${esc(parsed.phone)}" onfocus="ocrSetFocus('ocrPhone')" placeholder="Tap a line above"/>
-        </div>
-        <div class="form-group full">
-          <label>Title <span id="ocrFocusBadge-ocrTitle" style="font-size:0.7rem;color:var(--accent);display:none">← filling here</span></label>
-          <input type="text" id="ocrTitle" value="${esc(parsed.title)}" onfocus="ocrSetFocus('ocrTitle')" placeholder="Tap a line above"/>
-        </div>
+      <div style="margin-bottom:16px;display:flex;flex-direction:column;gap:6px">
+        ${chips}
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary" onclick="saveOCRLead()">💾 Save as Lead</button>
-        <button class="btn btn-outline" onclick="enrichOCRLead()">✨ Save &amp; Enrich</button>
-        <button class="btn btn-outline" onclick="resetOCR()">📷 Scan Another</button>
+
+      <div style="margin-bottom:16px">${fields}</div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-primary" style="width:100%;padding:14px;font-size:0.95rem" onclick="enrichOCRLead()">✨ Save &amp; Enrich</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline" style="flex:1;padding:12px" onclick="saveOCRLead()">💾 Save Only</button>
+          <button class="btn btn-outline" style="flex:1;padding:12px" onclick="resetOCR()">📷 Scan Again</button>
+        </div>
       </div>`;
   } catch(err) {
     progress.style.display = 'none';
@@ -1899,10 +1906,20 @@ function parseBusinessCard(text) {
 let _ocrFocusedField = 'ocrName';
 function ocrSetFocus(fieldId) {
   _ocrFocusedField = fieldId;
-  // Show "← filling here" badge on the active field, hide others
+  // Highlight active field wrapper with accent background, dim others
   ['ocrName','ocrCompany','ocrEmail','ocrPhone','ocrTitle'].forEach(id => {
-    const badge = document.getElementById('ocrFocusBadge-' + id);
-    if (badge) badge.style.display = id === fieldId ? 'inline' : 'none';
+    const wrap = document.getElementById('ocrFieldWrap-' + id);
+    if (!wrap) return;
+    if (id === fieldId) {
+      wrap.style.background = 'rgba(124,92,252,0.12)';
+      wrap.style.border = '1.5px solid var(--accent)';
+      wrap.style.borderRadius = '12px';
+      wrap.style.padding = '10px 10px 4px';
+    } else {
+      wrap.style.background = '';
+      wrap.style.border = '';
+      wrap.style.padding = '2px';
+    }
   });
 }
 function ocrFillField(text) {
