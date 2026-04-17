@@ -428,7 +428,7 @@
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-outline" onclick="openScanner('qr')">📷 Scan QR</button>
-          <button class="btn btn-outline" onclick="openScanner('ocr')">📇 Scan Card</button>
+          <button class="btn btn-outline" onclick="openScanner('ocr')">📇 Scan Business Card / Badge</button>
         </div>
       </div>
 
@@ -575,7 +575,7 @@
       <h3 id="scannerTitle">📷 Scan</h3>
       <div class="scanner-tabs">
         <button class="scanner-tab active" onclick="setScanMode('qr')">QR Code</button>
-        <button class="scanner-tab" onclick="setScanMode('ocr')">Business Card</button>
+        <button class="scanner-tab" onclick="setScanMode('ocr')">Card / Badge</button>
       </div>
       <button class="btn-sm btn-outline" onclick="dismissScanner()">✕ Close</button>
     </div>
@@ -1481,7 +1481,7 @@ function setScanMode(mode) {
   document.querySelectorAll('.scanner-tab').forEach((t,i) => t.classList.toggle('active', (i===0&&mode==='qr')||(i===1&&mode==='ocr')));
   document.getElementById('qrScanPane').style.display  = mode === 'qr'  ? 'block' : 'none';
   document.getElementById('ocrScanPane').style.display = mode === 'ocr' ? 'block' : 'none';
-  document.getElementById('scannerTitle').textContent  = mode === 'qr'  ? '📷 Scan QR Code' : '📇 Scan Business Card';
+  document.getElementById('scannerTitle').textContent  = mode === 'qr'  ? '📷 Scan QR Code' : '📇 Scan Business Card / Badge';
   if (mode === 'qr') startQRScanner();
   else stopQRScanner();
 }
@@ -1686,9 +1686,10 @@ function preprocessImageForOCR(file) {
       for (let i = 0; i < d.length; i += 4) {
         // Greyscale via luminance
         const grey = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-        // Contrast stretch: push towards black/white
-        const contrasted = Math.min(255, Math.max(0, (grey - 128) * 1.6 + 128));
-        d[i] = d[i+1] = d[i+2] = contrasted;
+        // Hard binary threshold: eliminates holographic/patterned badge backgrounds
+        // Dark text on white → pure black; light backgrounds → pure white
+        const bw = grey < 160 ? 0 : 255;
+        d[i] = d[i+1] = d[i+2] = bw;
       }
       ctx.putImageData(imageData, 0, 0);
       URL.revokeObjectURL(url);
@@ -1763,57 +1764,80 @@ async function handleCardImage(e) {
 }
 
 function parseBusinessCard(text) {
-  // Split and clean lines
   const allLines = text.split('\n').map(l => l.trim()).filter(l => l.length > 1);
 
-  // Filter out badge/card noise before parsing
-  const NOISE = /^(EXPO|VIP|SPEAKER|SPONSOR|EXHIBITOR|STAFF|PRESS|MEDIA|VOLUNTEER|ATTENDEE|ORG[\-\s]EXPO|BADGE|POWERED BY|SPONSORED BY|BADGE SPONSORED|CISCO|WIFI|PASSWORD|SSID|SCAN|QR|CONNECT|NETWORK|JOIN US)$/i;
+  // Strip known badge/conference noise — single words or phrases that aren't contact info
+  const NOISE = /^(EXPO|VIP|SPEAKER|SPONSOR|EXHIBITOR|STAFF|PRESS|MEDIA|VOLUNTEER|ATTENDEE|ORG[\-\s]?EXPO|BADGE|POWERED BY|SPONSORED BY|BADGE SPONSORED BY?|CISCO|WIFI|PASSWORD|SSID|SCAN HERE|JOIN US|RSA\s?CONFERENCE|RSAC|RSA|DEF\s?CON|BLACKHAT|BLACK HAT|AWS\s?RE:INVENT|DREAMFORCE|MONEY\s?20\/20|CES|SXSW|MWC|HIMSS|CONFERENCE|SUMMIT|FORUM|SYMPOSIUM|SESSION|KEYNOTE|WORKSHOP|ORG-EXPO|\||-+|_+|\.+)$/i;
+
   const lines = allLines.filter(l =>
     !NOISE.test(l) &&
     !/^https?:\/\//i.test(l) &&
-    !/^[^a-zA-Z]+$/.test(l)   // must have at least one letter
+    !/^[^a-zA-Z]+$/.test(l) &&   // must contain at least one letter
+    l.length > 1
   );
 
   const emailMatch = text.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
   const phoneMatch = text.match(/(\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})/);
 
-  const TITLE_KW   = /\b(CEO|CTO|CFO|COO|CMO|CRO|VP|Vice[\s-]President|SVP|EVP|Director|Manager|Engineer|Designer|Founder|President|Head of|Lead|Senior|Junior|Analyst|Consultant|Officer|Partner|Associate|Executive|Specialist|Strategist|Developer|Architect|Advisor|Representative|Account)\b/i;
+  const TITLE_KW   = /\b(CEO|CTO|CFO|COO|CMO|CRO|VP|Vice[\s-]President|SVP|EVP|Director|Manager|Engineer|Designer|Founder|President|Head of|Lead|Senior|Junior|Analyst|Consultant|Officer|Partner|Associate|Executive|Specialist|Strategist|Developer|Architect|Advisor|Representative|Account Exec)\b/i;
   const COMPANY_KW = /\b(Inc\.?|LLC|Ltd\.?|Corp\.?|Co\.|PLC|Group|Solutions|Technologies|Technology|Communications|Services|Consulting|Systems|Partners|Associates|Ventures|Holdings|Media|Agency|Studio|Labs|Digital|Global|International|Worldwide|Software|Networks?|Brands?|Enterprises?)\b/i;
 
-  // A good name: 2-4 words, mostly letters, no digits, not a title/company keyword
+  // A single word that could be half a name: capitalized, letters only, 2–20 chars
+  function isNameWord(w) { return /^[A-Za-z\-']{2,20}$/.test(w); }
+
+  // A line that looks like a complete person name: 2-4 words, no digits, no keyword match
   function looksLikeName(l) {
     const words = l.split(/\s+/);
     return words.length >= 2 && words.length <= 4 &&
-      l.length >= 5 && l.length <= 45 &&
-      !/\d/.test(l) &&
-      !l.includes('@') &&
-      !TITLE_KW.test(l) &&
-      !COMPANY_KW.test(l) &&
-      words.every(w => w.length >= 2);
+      l.length >= 4 && l.length <= 50 &&
+      !/\d/.test(l) && !l.includes('@') &&
+      !TITLE_KW.test(l) && !COMPANY_KW.test(l) &&
+      words.every(isNameWord);
   }
 
-  // Prefer a proper-case name-looking line; fall back to first clean short line
-  const nameLine =
-    lines.find(l => looksLikeName(l) && /^[A-Z]/.test(l)) ||
-    lines.find(l => looksLikeName(l)) ||
-    lines.find(l => !l.includes('@') && !/\d{4,}/.test(l) && l.length > 2 && l.length < 50) || '';
+  // Badge names are often printed in large font across TWO lines (e.g. "Clinton" / "Karr").
+  // Check consecutive single-word pairs that together form a plausible name.
+  let nameLine = '';
+  let skipLine = '';
+  for (let i = 0; i < lines.length - 1; i++) {
+    const a = lines[i], b = lines[i + 1];
+    const combined = a + ' ' + b;
+    if (
+      a.split(/\s+/).length <= 2 && b.split(/\s+/).length <= 2 &&
+      looksLikeName(combined) &&
+      /^[A-Z]/.test(a) && /^[A-Z]/.test(b)
+    ) {
+      nameLine = combined;
+      skipLine = b; // mark second line as consumed
+      break;
+    }
+  }
+  // Fall back to a single-line name if no two-line combo found
+  if (!nameLine) {
+    nameLine =
+      lines.find(l => looksLikeName(l) && /^[A-Z]/.test(l)) ||
+      lines.find(l => looksLikeName(l)) ||
+      '';
+  }
 
-  const titleLine = lines.find(l => l !== nameLine && TITLE_KW.test(l)) || '';
+  const titleLine = lines.find(l =>
+    l !== nameLine && l !== skipLine && TITLE_KW.test(l)
+  ) || '';
 
   const companyLine = lines.find(l =>
-    l !== nameLine && l !== titleLine &&
+    l !== nameLine && l !== skipLine && l !== titleLine &&
     !l.includes('@') && !/\d{4,}/.test(l) &&
-    l.length > 2 && l.length < 60 &&
-    (COMPANY_KW.test(l) || (l.split(/\s+/).length >= 2 && !looksLikeName(l)))
+    l.length > 2 && l.length < 70 &&
+    (COMPANY_KW.test(l) || (l.split(/\s+/).length >= 2 && !looksLikeName(l) && !TITLE_KW.test(l)))
   ) || '';
 
   return {
-    name:    nameLine,
-    title:   titleLine,
-    company: companyLine,
-    email:   emailMatch ? emailMatch[0] : '',
-    phone:   phoneMatch ? phoneMatch[0].trim() : '',
-    _rawLines: allLines, // preserve for display
+    name:      nameLine,
+    title:     titleLine,
+    company:   companyLine,
+    email:     emailMatch ? emailMatch[0] : '',
+    phone:     phoneMatch ? phoneMatch[0].trim() : '',
+    _rawLines: allLines,
   };
 }
 
