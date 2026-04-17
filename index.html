@@ -449,8 +449,9 @@
 
           <!-- 1. ENRICHMENT (top) -->
           <div class="panel">
+            <div id="badgeScanNotice" style="display:none;background:rgba(124,92,252,0.12);border:1px solid rgba(124,92,252,0.35);border-radius:10px;padding:10px 14px;font-size:0.82rem;color:var(--accent);margin-bottom:14px;line-height:1.5"></div>
             <div class="panel-title">✨ Apollo Enrichment</div>
-            <p style="color:var(--muted);font-size:0.82rem;margin-bottom:14px;line-height:1.55">Look up anyone by email or name to pull their LinkedIn, title, and company — then save them as a lead.</p>
+            <p style="color:var(--muted);font-size:0.82rem;margin-bottom:14px;line-height:1.55">Look up anyone by email or name to pull their LinkedIn, title, and company — then save them as a lead. Also works with scanned conference badges.</p>
             <div class="form-grid">
               <div class="form-group">
                 <label>Email <span style="color:var(--success)">★ best</span> or Full Name</label>
@@ -1455,6 +1456,104 @@ function setScanMode(mode) {
   else stopQRScanner();
 }
 
+// ── Badge QR parser ──────────────────────────────────────────
+function parseQRContent(raw) {
+  const text = raw.trim();
+
+  // 1. vCard (BEGIN:VCARD ... END:VCARD)
+  if (/^BEGIN:VCARD/i.test(text)) {
+    const get = (field) => {
+      const m = text.match(new RegExp(`^${field}[^:]*:(.*)$`, 'im'));
+      return m ? m[1].trim().replace(/\\n/g, ' ').replace(/\\,/g, ',') : '';
+    };
+    const fullName = get('FN') || [get('N').split(';').slice(0,2).reverse().join(' ')].join('').trim();
+    return {
+      format: 'vCard',
+      name:    fullName,
+      email:   get('EMAIL'),
+      company: get('ORG').split(';')[0],
+      title:   get('TITLE'),
+      phone:   get('TEL'),
+      url:     get('URL'),
+    };
+  }
+
+  // 2. MECARD (MECARD:N:Lastname,Firstname;EMAIL:...;;)
+  if (/^MECARD:/i.test(text)) {
+    const get = (field) => {
+      const m = text.match(new RegExp(`${field}:([^;]+)`));
+      return m ? m[1].trim() : '';
+    };
+    const rawName = get('N');
+    const parts   = rawName.split(',');
+    const name    = parts.length >= 2 ? `${parts[1].trim()} ${parts[0].trim()}` : rawName;
+    return {
+      format: 'MECARD',
+      name,
+      email:   get('EMAIL'),
+      company: get('ORG'),
+      title:   get('TITLE') || get('ADR'),
+      phone:   get('TEL'),
+      url:     '',
+    };
+  }
+
+  // 3. LinkedIn URL
+  const liMatch = text.match(/linkedin\.com\/in\/([^/?#]+)/i);
+  if (liMatch) {
+    const slug = liMatch[1];
+    // Convert slug (john-doe-123abc) → human name best-guess
+    const namePart = slug.replace(/-[a-z0-9]{6,}$/i, '').replace(/-/g, ' ');
+    const name = namePart.replace(/\b\w/g, c => c.toUpperCase());
+    return { format: 'LinkedIn', name, email: '', company: '', title: '', phone: '', url: text };
+  }
+
+  // 4. Plain URL (conference platform, etc.)
+  if (/^https?:\/\//i.test(text)) {
+    return { format: 'URL', name: '', email: '', company: '', title: '', phone: '', url: text };
+  }
+
+  // 5. Plain text — treat as name
+  return { format: 'Text', name: text, email: '', company: '', title: '', phone: '', url: '' };
+}
+
+function applyBadgeScan(parsed) {
+  // Close scanner, switch to Leads tab, pre-fill enrichment panel
+  dismissScanner();
+  switchView(2); // Leads
+
+  // Pre-fill the enrichment inputs
+  // enrichInput accepts email OR full name; prefer email when available
+  const enrichInputEl  = document.getElementById('enrichInput');
+  const enrichCompanyEl = document.getElementById('enrichCompany');
+  if (enrichInputEl)  enrichInputEl.value  = parsed.email || parsed.name || '';
+  if (enrichCompanyEl && parsed.company) enrichCompanyEl.value = parsed.company;
+
+  // Show a badge-scan notice above the enrichment panel
+  const notice = document.getElementById('badgeScanNotice');
+  if (notice) {
+    let detail = `<b>${parsed.format}</b>`;
+    if (parsed.name && !parsed.email) detail += ` · ${parsed.name}`;
+    if (parsed.title)   detail += ` · ${parsed.title}`;
+    if (parsed.phone)   detail += ` · ${parsed.phone}`;
+    if (parsed.url && parsed.format !== 'URL')
+      detail += ` · <a href="${parsed.url}" target="_blank" style="color:var(--accent)">Profile ↗</a>`;
+    notice.innerHTML = `🏷️ Badge scanned (${detail}) — fields pre-filled below`;
+    notice.style.display = 'block';
+    setTimeout(() => { notice.style.display = 'none'; }, 9000);
+  }
+
+  // Auto-enrich if we have enough data, otherwise prompt
+  if (parsed.email || (parsed.name && parsed.company)) {
+    toast('🏷️ Badge scanned — enriching…');
+    runEnrichment();
+  } else if (parsed.url && parsed.format === 'URL') {
+    toast('⚠️ Conference URL scanned — add name/email then tap Enrich');
+  } else {
+    toast('🏷️ Badge scanned — add company then tap Enrich');
+  }
+}
+
 function startQRScanner() {
   stopQRScanner();
   document.getElementById('qr-reader').innerHTML = '';
@@ -1465,29 +1564,36 @@ function startQRScanner() {
     { facingMode: 'environment' },
     { fps: 10, qrbox: { width: 250, height: 250 } },
     (decodedText) => {
-      // QR detected!
       stopQRScanner();
+      const parsed   = parseQRContent(decodedText);
       const resultEl = document.getElementById('qrResult');
       resultEl.style.display = 'block';
 
-      // If it looks like a NexCard URL, show it nicely
-      if (decodedText.includes('nexcard.app') || decodedText.startsWith('http')) {
-        resultEl.innerHTML = `
-          <div style="color:var(--success);font-weight:700;margin-bottom:8px">✅ QR Code Detected!</div>
-          <div style="color:var(--muted);font-size:0.8rem;margin-bottom:12px;word-break:break-all">${decodedText}</div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-primary" onclick="window.open('${decodedText}','_blank')">Open Profile</button>
-            <button class="btn btn-outline" onclick="startQRScanner()">Scan Again</button>
-          </div>`;
-      } else {
-        resultEl.innerHTML = `
-          <div style="color:var(--success);font-weight:700;margin-bottom:8px">✅ QR Code Detected!</div>
-          <div style="margin-bottom:12px;word-break:break-all">${decodedText}</div>
-          <button class="btn btn-outline" onclick="startQRScanner()">Scan Again</button>`;
-      }
+      // Build preview card
+      const rows = [
+        parsed.name    && `<div><b>Name:</b> ${parsed.name}</div>`,
+        parsed.email   && `<div><b>Email:</b> ${parsed.email}</div>`,
+        parsed.company && `<div><b>Company:</b> ${parsed.company}</div>`,
+        parsed.title   && `<div><b>Title:</b> ${parsed.title}</div>`,
+        parsed.phone   && `<div><b>Phone:</b> ${parsed.phone}</div>`,
+        parsed.url     && `<div><b>URL:</b> <a href="${parsed.url}" target="_blank" style="color:var(--accent)">${parsed.url.slice(0,50)}…</a></div>`,
+      ].filter(Boolean).join('');
+
+      const formatBadge = {
+        vCard: '📇 vCard badge', MECARD: '📇 MECARD badge',
+        LinkedIn: '🔗 LinkedIn', URL: '🌐 URL', Text: '📝 Text',
+      }[parsed.format] || parsed.format;
+
+      resultEl.innerHTML = `
+        <div style="color:var(--success);font-weight:700;margin-bottom:6px">✅ ${formatBadge} scanned!</div>
+        <div style="font-size:0.82rem;line-height:1.7;margin-bottom:12px">${rows || `<span style="color:var(--muted)">${decodedText.slice(0,120)}</span>`}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="applyBadgeScan(${JSON.stringify(parsed).replace(/"/g,'&quot;')})">⚡ Enrich This Lead</button>
+          <button class="btn btn-outline" onclick="startQRScanner()">Scan Again</button>
+        </div>`;
     },
     () => {} // scan failure - silent
-  ).catch(err => {
+  ).catch(() => {
     document.getElementById('qr-reader').innerHTML =
       `<div style="padding:32px;text-align:center;color:var(--danger)">❌ Camera access denied.<br><small>Please allow camera access in your browser settings.</small></div>`;
   });
