@@ -1522,40 +1522,52 @@ function applyBadgeScan() {
   const parsed = lastBadgeScan;
   if (!parsed) { toast('No badge scan data found — please scan again.'); return; }
 
-  // Close scanner, switch to Leads tab, pre-fill enrichment panel
   dismissScanner();
   switchView('leads');
 
-  // Pre-fill the enrichment inputs
-  // enrichInput accepts email OR full name; prefer email when available
-  const enrichInputEl  = document.getElementById('enrichInput');
-  const enrichCompanyEl = document.getElementById('enrichCompany');
-  if (enrichInputEl)  enrichInputEl.value  = parsed.email || parsed.name || '';
-  if (enrichCompanyEl && parsed.company) enrichCompanyEl.value = parsed.company;
+  // Determine what's usable for Apollo:
+  // - Email is best, use it alone
+  // - Clean name (letters/spaces/hyphens/apostrophes only) + optional company
+  // - LinkedIn slug → use the guessed name
+  // - Opaque URL or numeric-heavy text → nothing usable, ask user to type manually
+  const cleanName = (parsed.name || '').trim();
+  const looksLikeName = cleanName && /^[a-zA-ZÀ-ÿ '\-\.]+$/.test(cleanName) && cleanName.length < 60;
 
-  // Show a badge-scan notice above the enrichment panel
+  const enrichInputEl   = document.getElementById('enrichInput');
+  const enrichCompanyEl = document.getElementById('enrichCompany');
+
+  if (parsed.format === 'URL' && !parsed.email && !looksLikeName) {
+    // Opaque conference URL — can't extract useful data
+    const notice = document.getElementById('badgeScanNotice');
+    if (notice) {
+      notice.innerHTML = `⚠️ This badge QR links to a conference portal — no contact info could be extracted. Please type the person's name or email below and enrich manually.`;
+      notice.style.display = 'block';
+      setTimeout(() => { notice.style.display = 'none'; }, 12000);
+    }
+    if (enrichInputEl) enrichInputEl.value = '';
+    if (enrichCompanyEl) enrichCompanyEl.value = '';
+    return;
+  }
+
+  // Pre-fill fields with clean data only
+  if (enrichInputEl)  enrichInputEl.value  = parsed.email || (looksLikeName ? cleanName : '');
+  if (enrichCompanyEl) enrichCompanyEl.value = parsed.company || '';
+
+  // Show badge notice with extra details (title, phone, etc.)
   const notice = document.getElementById('badgeScanNotice');
   if (notice) {
-    let detail = `<b>${parsed.format}</b>`;
-    if (parsed.name && !parsed.email) detail += ` · ${parsed.name}`;
-    if (parsed.title)   detail += ` · ${parsed.title}`;
-    if (parsed.phone)   detail += ` · ${parsed.phone}`;
-    if (parsed.url && parsed.format !== 'URL')
-      detail += ` · <a href="${parsed.url}" target="_blank" style="color:var(--accent)">Profile ↗</a>`;
-    notice.innerHTML = `🏷️ Badge scanned (${detail}) — fields pre-filled below`;
+    const extras = [
+      parsed.title && parsed.title,
+      parsed.phone && parsed.phone,
+      (parsed.url && parsed.format !== 'URL') && `<a href="${parsed.url}" target="_blank" style="color:var(--accent)">Profile ↗</a>`,
+    ].filter(Boolean).join(' · ');
+    notice.innerHTML = `🏷️ <b>${parsed.format} badge scanned</b>${extras ? ' — ' + extras : ''}`;
     notice.style.display = 'block';
-    setTimeout(() => { notice.style.display = 'none'; }, 9000);
+    setTimeout(() => { notice.style.display = 'none'; }, 10000);
   }
 
-  // Auto-enrich if we have enough data, otherwise prompt
-  if (parsed.email || (parsed.name && parsed.company)) {
-    toast('🏷️ Badge scanned — enriching…');
-    runEnrichment();
-  } else if (parsed.url && parsed.format === 'URL') {
-    toast('⚠️ Conference URL scanned — add name/email then tap Enrich');
-  } else {
-    toast('🏷️ Badge scanned — add company then tap Enrich');
-  }
+  // Always auto-run enrichment — user just hits Save when results look good
+  runEnrichment();
 }
 
 function startQRScanner() {
@@ -1569,34 +1581,9 @@ function startQRScanner() {
     { fps: 10, qrbox: { width: 250, height: 250 } },
     (decodedText) => {
       stopQRScanner();
-      const parsed   = parseQRContent(decodedText);
-      lastBadgeScan  = parsed; // store globally — avoids serialization issues in onclick
-      const resultEl = document.getElementById('qrResult');
-      resultEl.style.display = 'block';
-
-      // Build preview card — escape values for safe HTML display
-      const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      const rows = [
-        parsed.name    && `<div><b>Name:</b> ${esc(parsed.name)}</div>`,
-        parsed.email   && `<div><b>Email:</b> ${esc(parsed.email)}</div>`,
-        parsed.company && `<div><b>Company:</b> ${esc(parsed.company)}</div>`,
-        parsed.title   && `<div><b>Title:</b> ${esc(parsed.title)}</div>`,
-        parsed.phone   && `<div><b>Phone:</b> ${esc(parsed.phone)}</div>`,
-        parsed.url     && `<div><b>URL:</b> <a href="${esc(parsed.url)}" target="_blank" style="color:var(--accent)">${esc(parsed.url.slice(0,60))}</a></div>`,
-      ].filter(Boolean).join('');
-
-      const formatBadge = {
-        vCard: '📇 vCard badge', MECARD: '📇 MECARD badge',
-        LinkedIn: '🔗 LinkedIn', URL: '🌐 URL', Text: '📝 Text',
-      }[parsed.format] || parsed.format;
-
-      resultEl.innerHTML = `
-        <div style="color:var(--success);font-weight:700;margin-bottom:6px">✅ ${formatBadge} scanned!</div>
-        <div style="font-size:0.82rem;line-height:1.7;margin-bottom:12px">${rows || `<span style="color:var(--muted)">${esc(decodedText.slice(0,120))}</span>`}</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="applyBadgeScan()">⚡ Enrich This Lead</button>
-          <button class="btn btn-outline" onclick="startQRScanner()">Scan Again</button>
-        </div>`;
+      lastBadgeScan = parseQRContent(decodedText);
+      // Go straight to enrichment — no intermediate preview step
+      applyBadgeScan();
     },
     () => {} // scan failure - silent
   ).catch(() => {
