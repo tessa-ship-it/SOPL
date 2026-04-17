@@ -1666,6 +1666,39 @@ function dismissScanner() {
 }
 
 // ── OCR ──
+// Convert image to greyscale + contrast-enhanced canvas blob before OCR.
+// This strips color from badge elements (orange bars, logos) that confuse Tesseract.
+function preprocessImageForOCR(file) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const canvas  = document.createElement('canvas');
+      // Cap at 2000px wide to avoid huge canvases
+      const scale   = Math.min(1, 2000 / img.width);
+      canvas.width  = Math.round(img.width  * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imageData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        // Greyscale via luminance
+        const grey = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+        // Contrast stretch: push towards black/white
+        const contrasted = Math.min(255, Math.max(0, (grey - 128) * 1.6 + 128));
+        d[i] = d[i+1] = d[i+2] = contrasted;
+      }
+      ctx.putImageData(imageData, 0, 0);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(blob => resolve(blob || file), 'image/png');
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 async function handleCardImage(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -1685,7 +1718,11 @@ async function handleCardImage(e) {
   result.style.display   = 'none';
 
   try {
-    const { data: { text } } = await Tesseract.recognize(file, 'eng', {
+    // Pre-process: greyscale + contrast boost so OCR isn't confused by
+    // colored badge elements (orange bars, QR codes, sponsor logos, etc.)
+    const processedFile = await preprocessImageForOCR(file);
+
+    const { data: { text } } = await Tesseract.recognize(processedFile, 'eng', {
       logger: m => {
         if (m.status === 'recognizing text') {
           fill.style.width = Math.round(m.progress * 100) + '%';
@@ -1697,21 +1734,27 @@ async function handleCardImage(e) {
     progress.style.display = 'none';
     const parsed = parseBusinessCard(text);
 
+    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
     result.style.display = 'block';
     result.innerHTML = `
-      <div style="color:var(--success);font-weight:700;margin-bottom:12px">✅ Card read successfully!</div>
+      <div style="color:var(--success);font-weight:700;margin-bottom:12px">✅ Card read — review and correct below</div>
       <div class="form-grid" style="margin-bottom:16px">
-        <div class="form-group"><label>Name</label><input type="text" id="ocrName" value="${parsed.name}"/></div>
-        <div class="form-group"><label>Company</label><input type="text" id="ocrCompany" value="${parsed.company}"/></div>
-        <div class="form-group"><label>Email</label><input type="email" id="ocrEmail" value="${parsed.email}"/></div>
-        <div class="form-group"><label>Phone</label><input type="tel" id="ocrPhone" value="${parsed.phone}"/></div>
-        <div class="form-group full"><label>Title</label><input type="text" id="ocrTitle" value="${parsed.title}"/></div>
+        <div class="form-group"><label>Name</label><input type="text" id="ocrName" value="${esc(parsed.name)}"/></div>
+        <div class="form-group"><label>Company</label><input type="text" id="ocrCompany" value="${esc(parsed.company)}"/></div>
+        <div class="form-group"><label>Email</label><input type="email" id="ocrEmail" value="${esc(parsed.email)}"/></div>
+        <div class="form-group"><label>Phone</label><input type="tel" id="ocrPhone" value="${esc(parsed.phone)}"/></div>
+        <div class="form-group full"><label>Title</label><input type="text" id="ocrTitle" value="${esc(parsed.title)}"/></div>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
         <button class="btn btn-primary" onclick="saveOCRLead()">💾 Save as Lead</button>
         <button class="btn btn-outline" onclick="enrichOCRLead()">✨ Save & Enrich</button>
         <button class="btn btn-outline" onclick="resetOCR()">📷 Scan Another</button>
-      </div>`;
+      </div>
+      <details style="font-size:0.75rem;color:var(--muted)">
+        <summary style="cursor:pointer">Raw OCR text (tap to see if fields look wrong)</summary>
+        <div style="margin-top:6px;background:var(--surface2);border-radius:8px;padding:10px;line-height:1.6;white-space:pre-wrap">${esc((parsed._rawLines||[]).join('\n'))}</div>
+      </details>`;
   } catch(err) {
     progress.style.display = 'none';
     result.style.display = 'block';
@@ -1720,26 +1763,48 @@ async function handleCardImage(e) {
 }
 
 function parseBusinessCard(text) {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  // Split and clean lines
+  const allLines = text.split('\n').map(l => l.trim()).filter(l => l.length > 1);
+
+  // Filter out badge/card noise before parsing
+  const NOISE = /^(EXPO|VIP|SPEAKER|SPONSOR|EXHIBITOR|STAFF|PRESS|MEDIA|VOLUNTEER|ATTENDEE|ORG[\-\s]EXPO|BADGE|POWERED BY|SPONSORED BY|BADGE SPONSORED|CISCO|WIFI|PASSWORD|SSID|SCAN|QR|CONNECT|NETWORK|JOIN US)$/i;
+  const lines = allLines.filter(l =>
+    !NOISE.test(l) &&
+    !/^https?:\/\//i.test(l) &&
+    !/^[^a-zA-Z]+$/.test(l)   // must have at least one letter
+  );
+
   const emailMatch = text.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
-  const phoneMatch = text.match(/(\+?[\d][\d\s\-().]{7,}[\d])/);
+  const phoneMatch = text.match(/(\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})/);
 
-  // Heuristic: name is usually the first non-email, non-phone, non-URL line
-  const nameLine = lines.find(l =>
-    !l.includes('@') && !l.match(/\d{4,}/) &&
-    !l.match(/https?:\/\//) && l.length > 2 && l.length < 50
-  ) || '';
+  const TITLE_KW   = /\b(CEO|CTO|CFO|COO|CMO|CRO|VP|Vice[\s-]President|SVP|EVP|Director|Manager|Engineer|Designer|Founder|President|Head of|Lead|Senior|Junior|Analyst|Consultant|Officer|Partner|Associate|Executive|Specialist|Strategist|Developer|Architect|Advisor|Representative|Account)\b/i;
+  const COMPANY_KW = /\b(Inc\.?|LLC|Ltd\.?|Corp\.?|Co\.|PLC|Group|Solutions|Technologies|Technology|Communications|Services|Consulting|Systems|Partners|Associates|Ventures|Holdings|Media|Agency|Studio|Labs|Digital|Global|International|Worldwide|Software|Networks?|Brands?|Enterprises?)\b/i;
 
-  // Title keywords
-  const titleLine = lines.find(l =>
-    l.match(/\b(CEO|CTO|CFO|COO|VP|Director|Manager|Engineer|Designer|Founder|President|Head|Lead|Senior|Junior|Analyst|Consultant|Officer|Partner)\b/i)
-  ) || '';
+  // A good name: 2-4 words, mostly letters, no digits, not a title/company keyword
+  function looksLikeName(l) {
+    const words = l.split(/\s+/);
+    return words.length >= 2 && words.length <= 4 &&
+      l.length >= 5 && l.length <= 45 &&
+      !/\d/.test(l) &&
+      !l.includes('@') &&
+      !TITLE_KW.test(l) &&
+      !COMPANY_KW.test(l) &&
+      words.every(w => w.length >= 2);
+  }
 
-  // Company: often ALL CAPS or after title
+  // Prefer a proper-case name-looking line; fall back to first clean short line
+  const nameLine =
+    lines.find(l => looksLikeName(l) && /^[A-Z]/.test(l)) ||
+    lines.find(l => looksLikeName(l)) ||
+    lines.find(l => !l.includes('@') && !/\d{4,}/.test(l) && l.length > 2 && l.length < 50) || '';
+
+  const titleLine = lines.find(l => l !== nameLine && TITLE_KW.test(l)) || '';
+
   const companyLine = lines.find(l =>
-    l !== nameLine && l !== titleLine && !l.includes('@') &&
-    !l.match(/\d{4,}/) && l.length > 2 && l.length < 60 &&
-    (l === l.toUpperCase() || l.match(/\b(Inc|LLC|Ltd|Corp|Co\.|Group|Solutions|Technologies|Services|Consulting)\b/i))
+    l !== nameLine && l !== titleLine &&
+    !l.includes('@') && !/\d{4,}/.test(l) &&
+    l.length > 2 && l.length < 60 &&
+    (COMPANY_KW.test(l) || (l.split(/\s+/).length >= 2 && !looksLikeName(l)))
   ) || '';
 
   return {
@@ -1748,6 +1813,7 @@ function parseBusinessCard(text) {
     company: companyLine,
     email:   emailMatch ? emailMatch[0] : '',
     phone:   phoneMatch ? phoneMatch[0].trim() : '',
+    _rawLines: allLines, // preserve for display
   };
 }
 
