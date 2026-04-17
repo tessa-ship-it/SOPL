@@ -1,0 +1,1449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NexCard — Digital Business Card Platform</title>
+
+  <!-- Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- QR Code Generator -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- QR Code Scanner -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- OCR -->
+  <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d0d0f; --surface: #18181c; --surface2: #222228; --border: #2e2e38;
+      --accent: #7c5cfc; --accent2: #c471ed; --text: #f0f0f5; --muted: #888898;
+      --success: #22d3a5; --danger: #fc5c7d; --warn: #f59e0b;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* ── LAYOUT ── */
+    nav {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 28px; border-bottom: 1px solid var(--border);
+      background: var(--surface); position: sticky; top: 0; z-index: 100;
+    }
+    .logo {
+      font-size: 1.4rem; font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-tabs { display: flex; gap: 4px; }
+    .nav-tab {
+      padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer;
+      font-size: 0.83rem; font-weight: 600; background: transparent;
+      color: var(--muted); transition: all 0.2s;
+    }
+    .nav-tab:hover { background: var(--surface2); color: var(--text); }
+    .nav-tab.active { background: var(--accent); color: #fff; }
+    .user-chip {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 12px; background: var(--surface2); border-radius: 20px;
+      font-size: 0.8rem; color: var(--muted);
+    }
+    .user-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+    .btn-sm { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.8rem; font-weight: 600; transition: all 0.2s; }
+
+    main { max-width: 1100px; margin: 0 auto; padding: 36px 24px; }
+
+    /* ── AUTH SCREEN ── */
+    #authScreen {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at top, #1a0a3e 0%, var(--bg) 60%);
+    }
+    .auth-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 24px; padding: 40px; width: 420px; max-width: 95vw;
+    }
+    .auth-logo {
+      font-size: 2rem; font-weight: 900; text-align: center; margin-bottom: 8px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .auth-sub { text-align: center; color: var(--muted); font-size: 0.88rem; margin-bottom: 32px; }
+    .auth-tabs { display: flex; background: var(--surface2); border-radius: 12px; padding: 4px; margin-bottom: 24px; }
+    .auth-tab {
+      flex: 1; padding: 9px; border-radius: 9px; border: none; cursor: pointer;
+      font-size: 0.85rem; font-weight: 600; background: transparent; color: var(--muted); transition: all 0.2s;
+    }
+    .auth-tab.active { background: var(--accent); color: #fff; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+    label { font-size: 0.78rem; font-weight: 600; color: var(--muted); }
+    input, select, textarea {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 11px 14px; color: var(--text); font-size: 0.9rem; outline: none;
+      transition: border 0.2s; width: 100%; font-family: inherit;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+    textarea { resize: vertical; min-height: 80px; }
+    .btn {
+      padding: 12px 20px; border-radius: 12px; border: none; cursor: pointer;
+      font-size: 0.9rem; font-weight: 700; transition: all 0.2s;
+    }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .btn-outline { background: rgba(255,255,255,0.07); color: var(--text); border: 1px solid var(--border); }
+    .btn-outline:hover { background: rgba(255,255,255,0.12); }
+    .btn-danger { background: rgba(252,92,125,0.15); color: var(--danger); border: 1px solid rgba(252,92,125,0.3); }
+    .btn-danger:hover { background: rgba(252,92,125,0.25); }
+    .err-msg { background: rgba(252,92,125,0.1); border: 1px solid rgba(252,92,125,0.3); color: var(--danger); padding: 10px 14px; border-radius: 10px; font-size: 0.82rem; margin-top: 8px; display: none; }
+    .ok-msg { background: rgba(34,211,165,0.1); border: 1px solid rgba(34,211,165,0.3); color: var(--success); padding: 10px 14px; border-radius: 10px; font-size: 0.82rem; margin-top: 8px; display: none; }
+
+    /* ── APP VIEWS ── */
+    #appShell { display: none; }
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* ── CARD VIEW ── */
+    .card-layout { display: grid; grid-template-columns: 1fr 340px; gap: 28px; align-items: start; }
+    .card-preview {
+      border-radius: 24px; overflow: hidden;
+      background: linear-gradient(160deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      border: 1px solid var(--border); position: relative;
+    }
+    .card-preview::before {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(124,92,252,0.15) 0%, rgba(196,113,237,0.08) 100%);
+      pointer-events: none;
+    }
+    .card-inner { padding: 36px; position: relative; }
+    .avatar-wrap {
+      width: 80px; height: 80px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.8rem; font-weight: 800; color: #fff; margin-bottom: 18px;
+      cursor: pointer; overflow: hidden; position: relative;
+    }
+    .avatar-wrap img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+    .avatar-overlay {
+      position: absolute; inset: 0; background: rgba(0,0,0,0.5);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; color: #fff; opacity: 0; transition: opacity 0.2s; border-radius: 50%;
+    }
+    .avatar-wrap:hover .avatar-overlay { opacity: 1; }
+    .card-name { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 4px; }
+    .card-title { color: var(--accent2); font-size: 0.95rem; font-weight: 500; margin-bottom: 4px; }
+    .card-company { color: var(--muted); font-size: 0.85rem; margin-bottom: 22px; }
+    .card-links { display: flex; flex-direction: column; gap: 9px; margin-bottom: 24px; }
+    .card-link {
+      display: flex; align-items: center; gap: 12px; padding: 11px 14px;
+      background: rgba(255,255,255,0.06); border-radius: 11px; border: 1px solid rgba(255,255,255,0.06);
+      color: var(--text); font-size: 0.85rem; cursor: pointer; transition: background 0.2s;
+    }
+    .card-link:hover { background: rgba(255,255,255,0.1); }
+    .card-actions { display: flex; gap: 9px; }
+
+    /* ── SIDEBAR ── */
+    .sidebar { display: flex; flex-direction: column; gap: 18px; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 22px; }
+    .panel-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 14px; }
+    #qr-container { display: flex; justify-content: center; align-items: center; padding: 14px; background: #fff; border-radius: 14px; margin-bottom: 12px; }
+
+    /* ── STATS ── */
+    .stats-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 28px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px; text-align: center; }
+    .stat-num { font-size: 1.9rem; font-weight: 800; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .stat-label { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+
+    /* ── EDIT ── */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .form-group.full { grid-column: 1 / -1; }
+    .section-sep { border: none; border-top: 1px solid var(--border); margin: 22px 0; }
+    .section-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 14px; }
+    .link-row { display: grid; grid-template-columns: 36px 120px 1fr auto; align-items: center; gap: 8px; margin-bottom: 9px; }
+    .del-btn { background: rgba(252,92,125,0.1); border: none; color: var(--danger); border-radius: 8px; padding: 8px 10px; cursor: pointer; font-size: 0.9rem; transition: background 0.2s; }
+    .del-btn:hover { background: rgba(252,92,125,0.22); }
+    .add-btn { background: rgba(124,92,252,0.1); border: 1px dashed rgba(124,92,252,0.4); color: var(--accent); border-radius: 10px; padding: 10px; cursor: pointer; font-size: 0.83rem; font-weight: 600; width: 100%; transition: background 0.2s; margin-top: 4px; }
+    .add-btn:hover { background: rgba(124,92,252,0.18); }
+
+    /* ── LEADS ── */
+    .leads-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+    .leads-grid { display: grid; grid-template-columns: 1fr 320px; gap: 24px; align-items: start; }
+    .leads-list { display: flex; flex-direction: column; gap: 10px; }
+    .lead-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 15px;
+      padding: 15px 18px; display: flex; align-items: center; gap: 14px;
+      transition: border-color 0.2s; cursor: pointer;
+    }
+    .lead-card:hover { border-color: var(--accent); }
+    .lead-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 0.95rem; flex-shrink: 0;
+    }
+    .lead-name { font-weight: 700; font-size: 0.92rem; }
+    .lead-detail { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+    .lead-badge { font-size: 0.68rem; padding: 3px 9px; border-radius: 20px; font-weight: 700; }
+    .badge-new { background: rgba(34,211,165,0.15); color: var(--success); }
+    .badge-saved { background: rgba(124,92,252,0.15); color: var(--accent); }
+    .badge-enriched { background: rgba(245,158,11,0.15); color: var(--warn); }
+    .enrich-result { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 14px; font-size: 0.83rem; line-height: 1.7; }
+    .enrich-row { display: flex; gap: 8px; margin-bottom: 4px; }
+    .enrich-label { color: var(--muted); min-width: 90px; }
+    .enrich-val { color: var(--text); font-weight: 500; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── CONFIG BANNER ── */
+    .config-banner {
+      background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 12px; padding: 14px 18px; font-size: 0.84rem; color: var(--warn);
+      margin-bottom: 24px; display: flex; align-items: center; gap: 10px;
+    }
+    .config-banner a { color: var(--warn); }
+
+    /* ── MODAL ── */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); display: none; align-items: center; justify-content: center; z-index: 999; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 30px; max-width: 440px; width: 93%; }
+    .modal h2 { font-size: 1.25rem; font-weight: 800; margin-bottom: 8px; }
+    .modal p { color: var(--muted); font-size: 0.86rem; margin-bottom: 20px; line-height: 1.55; }
+    .modal-actions { display: flex; gap: 9px; }
+
+    /* ── TOAST ── */
+    .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--surface2); border: 1px solid var(--border); border-radius: 11px; padding: 12px 22px; font-size: 0.85rem; font-weight: 600; z-index: 9999; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+
+    .badge-pulse { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--success); margin-left: 5px; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* ── SCANNER MODAL ── */
+    .scanner-modal { background: #000; border-radius: 20px; width: 100%; max-width: 480px; overflow: hidden; }
+    .scanner-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; background: var(--surface); }
+    .scanner-modal-header h3 { font-size: 1rem; font-weight: 700; }
+    .scanner-tabs { display: flex; gap: 6px; }
+    .scanner-tab { padding: 6px 14px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.8rem; font-weight: 600; background: var(--surface2); color: var(--muted); transition: all 0.2s; }
+    .scanner-tab.active { background: var(--accent); color: #fff; }
+    #qr-reader { width: 100%; }
+    #qr-reader video { width: 100% !important; }
+    #qr-reader img { display: none !important; }
+    .ocr-drop {
+      width: 100%; min-height: 220px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px;
+      border: 2px dashed var(--border); border-radius: 14px; cursor: pointer;
+      transition: border-color 0.2s; padding: 24px; background: var(--surface2);
+    }
+    .ocr-drop:hover { border-color: var(--accent); }
+    .ocr-drop.dragging { border-color: var(--accent); background: rgba(124,92,252,0.08); }
+    .ocr-preview { width: 100%; border-radius: 10px; max-height: 200px; object-fit: cover; }
+    .ocr-result { background: var(--surface2); border-radius: 12px; padding: 14px; font-size: 0.83rem; line-height: 1.7; margin-top: 4px; }
+    .progress-bar { width: 100%; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin: 8px 0; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 2px; transition: width 0.3s; }
+
+    /* ── SETTINGS ── */
+    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .settings-card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 22px; }
+    .settings-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 14px; }
+    .key-field { position: relative; }
+    .key-field input { padding-right: 80px; font-family: monospace; font-size: 0.78rem; }
+    .key-reveal { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.78rem; }
+
+    @media (max-width: 768px) {
+      .card-layout, .leads-grid, .settings-grid, .form-grid { grid-template-columns: 1fr; }
+      .stats-strip { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════ AUTH SCREEN ═══════════════════ -->
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="auth-logo">NexCard</div>
+    <div class="auth-sub">Your digital business card, supercharged.</div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tabSignin" onclick="setAuthMode('signin')">Sign In</button>
+      <button class="auth-tab" id="tabSignup" onclick="setAuthMode('signup')">Create Account</button>
+    </div>
+
+    <div id="signupExtra" style="display:none">
+      <div class="form-grid" style="margin-bottom:14px">
+        <div class="form-group">
+          <label>First Name</label>
+          <input type="text" id="authFirst" placeholder="Jane"/>
+        </div>
+        <div class="form-group">
+          <label>Last Name</label>
+          <input type="text" id="authLast" placeholder="Doe"/>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="authEmail" placeholder="you@email.com"/>
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="authPassword" placeholder="••••••••"/>
+    </div>
+
+    <div class="err-msg" id="authErr"></div>
+    <div class="ok-msg" id="authOk"></div>
+
+    <button class="btn btn-primary" style="width:100%;margin-top:16px" id="authBtn" onclick="handleAuth()">
+      Sign In
+    </button>
+
+    <p style="text-align:center;color:var(--muted);font-size:0.78rem;margin-top:16px">
+      Or <a href="#" style="color:var(--accent)" onclick="demoMode(); return false;">try demo mode →</a>
+    </p>
+  </div>
+</div>
+
+<!-- ═══════════════════ APP SHELL ═══════════════════ -->
+<div id="appShell">
+  <nav>
+    <div class="logo">NexCard</div>
+    <div class="nav-right">
+      <div class="nav-tabs">
+        <button class="nav-tab active" onclick="switchView('card')">My Card</button>
+        <button class="nav-tab" onclick="switchView('edit')">Edit</button>
+        <button class="nav-tab" onclick="switchView('leads')">Leads <span class="badge-pulse"></span></button>
+        <button class="nav-tab" onclick="switchView('settings')">Settings</button>
+      </div>
+      <div class="user-chip">
+        <div class="user-dot"></div>
+        <span id="userEmailChip">user@email.com</span>
+      </div>
+      <button class="btn-sm btn-outline" onclick="signOut()">Sign Out</button>
+    </div>
+  </nav>
+
+  <main>
+    <!-- CONFIG BANNER (shown when keys missing) -->
+    <div class="config-banner" id="configBanner" style="display:none">
+      ⚠️ <span id="configBannerMsg">Add your API credentials in <b>Settings</b> to unlock all features.</span>
+    </div>
+
+    <!-- ── MY CARD ── -->
+    <div class="view active" id="view-card">
+      <div class="stats-strip">
+        <div class="stat-card"><div class="stat-num" id="statViews">—</div><div class="stat-label">Profile Views</div></div>
+        <div class="stat-card"><div class="stat-num" id="statTaps">—</div><div class="stat-label">Taps / Scans</div></div>
+        <div class="stat-card"><div class="stat-num" id="statLeads">—</div><div class="stat-label">Leads Saved</div></div>
+      </div>
+      <div class="card-layout">
+        <div class="card-preview">
+          <div class="card-inner">
+            <div class="avatar-wrap" id="avatarWrap" title="Click to change photo">
+              <span id="avatarInitials">--</span>
+              <div class="avatar-overlay">📷</div>
+              <input type="file" id="avatarInput" accept="image/*" style="display:none" onchange="handleAvatarChange(event)"/>
+            </div>
+            <div class="card-name" id="previewName">Your Name</div>
+            <div class="card-title" id="previewTitle">Your Title</div>
+            <div class="card-company" id="previewCompany">@ Company</div>
+            <div class="card-links" id="previewLinks"></div>
+            <div class="card-actions">
+              <button class="btn btn-primary" onclick="openModal('vcardModal')">💾 Save Contact</button>
+              <button class="btn btn-outline" onclick="copyProfileLink()">🔗 Copy Link</button>
+            </div>
+          </div>
+        </div>
+        <div class="sidebar">
+          <div class="panel">
+            <div class="panel-title">QR Code</div>
+            <div id="qr-container"></div>
+            <div style="font-size:0.75rem;color:var(--muted);text-align:center;margin-bottom:12px;word-break:break-all" id="qrUrl"></div>
+            <button class="btn btn-outline" style="width:100%" onclick="downloadQR()">⬇ Download QR</button>
+          </div>
+          <div class="panel">
+            <div class="panel-title">Share</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <button class="btn btn-outline" style="width:100%;text-align:left" onclick="copyProfileLink()">🔗 Copy Link</button>
+              <button class="btn btn-outline" style="width:100%;text-align:left" onclick="shareNative()">📤 Share via...</button>
+              <button class="btn btn-outline" style="width:100%;text-align:left" onclick="openModal('vcardModal')">💾 Export vCard</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── EDIT ── -->
+    <div class="view" id="view-edit">
+      <div style="margin-bottom:20px">
+        <h1 style="font-size:1.55rem;font-weight:800;margin-bottom:4px">Edit Your Card</h1>
+        <p style="color:var(--muted);font-size:0.88rem">Changes are saved to your account.</p>
+      </div>
+      <div class="panel" style="max-width:680px">
+        <div class="section-label">Personal Info</div>
+        <div class="form-grid">
+          <div class="form-group"><label>First Name</label><input type="text" id="firstName" oninput="liveSync()"/></div>
+          <div class="form-group"><label>Last Name</label><input type="text" id="lastName" oninput="liveSync()"/></div>
+          <div class="form-group"><label>Job Title</label><input type="text" id="jobTitle" oninput="liveSync()"/></div>
+          <div class="form-group"><label>Company</label><input type="text" id="company" oninput="liveSync()"/></div>
+          <div class="form-group"><label>Email</label><input type="email" id="cardEmail" oninput="liveSync()"/></div>
+          <div class="form-group"><label>Phone</label><input type="tel" id="phone" oninput="liveSync()"/></div>
+          <div class="form-group full"><label>Bio / Tagline</label><textarea id="bio" oninput="liveSync()"></textarea></div>
+        </div>
+        <hr class="section-sep"/>
+        <div class="section-label">Social & Links</div>
+        <div id="linksEditor"></div>
+        <button class="add-btn" onclick="addLink()">+ Add Link</button>
+        <hr class="section-sep"/>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-primary" onclick="saveProfile()">💾 Save Card</button>
+          <button class="btn btn-outline" onclick="switchView('card')">Preview</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── LEADS ── -->
+    <div class="view" id="view-leads">
+      <div class="leads-header">
+        <div>
+          <h1 style="font-size:1.55rem;font-weight:800;margin-bottom:4px">Leads & Connections</h1>
+          <p style="color:var(--muted);font-size:0.88rem">People who scanned your card or shared their info.</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-outline" onclick="openScanner('qr')">📷 Scan QR</button>
+          <button class="btn btn-outline" onclick="openScanner('ocr')">📇 Scan Card</button>
+          <button class="btn btn-primary" onclick="toggleScanForm()">+ Add Lead</button>
+        </div>
+      </div>
+
+      <div id="scanForm" style="display:none" class="panel" style="margin-bottom:20px;max-width:700px">
+        <div class="section-label">New Lead</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Name *</label><input type="text" id="scanName" placeholder="Alex Smith"/></div>
+          <div class="form-group"><label>Company</label><input type="text" id="scanCompany" placeholder="Startup Inc."/></div>
+          <div class="form-group"><label>Email</label><input type="email" id="scanEmail" placeholder="alex@startup.io"/></div>
+          <div class="form-group"><label>Phone</label><input type="tel" id="scanPhone" placeholder="+1 555 000 1234"/></div>
+          <div class="form-group full"><label>Notes</label><textarea id="scanNotes" placeholder="Where you met, what to follow up on..."></textarea></div>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="saveLead()">Save Lead</button>
+          <button class="btn btn-outline" onclick="enrichFromForm()">✨ Save & Enrich</button>
+          <button class="btn btn-outline" onclick="toggleScanForm()">Cancel</button>
+        </div>
+      </div>
+
+      <div class="leads-grid">
+        <div>
+          <div class="leads-list" id="leadsList">
+            <p style="color:var(--muted);text-align:center;padding:40px 0">No leads yet. Add your first connection!</p>
+          </div>
+        </div>
+        <div>
+          <div class="panel">
+            <div class="panel-title">✨ Apollo Enrichment</div>
+            <p style="color:var(--muted);font-size:0.82rem;margin-bottom:14px;line-height:1.55">Enter an email or name to pull LinkedIn, job title, company info automatically via Apollo.io.</p>
+            <div class="form-group"><label>Email <span style="color:var(--success)">★ best</span> or Full Name</label><input type="text" id="enrichInput" placeholder="alex@company.com"/></div>
+            <div class="form-group"><label>Company <span style="color:var(--warn)">(required for name-only searches)</span></label><input type="text" id="enrichCompany" placeholder="Acme Corp"/></div>
+            <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="runEnrichment()">✨ Enrich Now</button>
+            <div id="enrichResult" style="display:none;margin-top:14px"></div>
+          </div>
+          <div class="panel" style="margin-top:16px">
+            <div class="panel-title">Export</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <button class="btn btn-outline" style="width:100%;text-align:left" onclick="exportCSV()">📊 Export as CSV</button>
+              <button class="btn btn-outline" style="width:100%;text-align:left" onclick="toast('🔗 CRM sync coming soon!')">🔗 Sync to CRM</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SETTINGS ── -->
+    <div class="view" id="view-settings">
+      <div style="margin-bottom:20px">
+        <h1 style="font-size:1.55rem;font-weight:800;margin-bottom:4px">Settings</h1>
+        <p style="color:var(--muted);font-size:0.88rem">Configure your API connections.</p>
+      </div>
+      <div class="settings-grid">
+        <div class="settings-card">
+          <h3>🗄 Supabase</h3>
+          <div class="form-group" style="margin-bottom:12px">
+            <label>Project URL</label>
+            <input type="url" id="sbUrl" placeholder="https://xxxx.supabase.co"/>
+          </div>
+          <div class="form-group" style="margin-bottom:12px">
+            <label>Anon / Publishable Key</label>
+            <div class="key-field">
+              <input type="password" id="sbKey" placeholder="sb_publishable_..."/>
+              <button class="key-reveal" onclick="toggleReveal('sbKey')">Show</button>
+            </div>
+          </div>
+          <button class="btn btn-primary" style="width:100%" onclick="saveSupabaseConfig()">Save & Reconnect</button>
+        </div>
+
+        <div class="settings-card">
+          <h3>🔍 Apollo.io Enrichment</h3>
+          <p style="color:var(--muted);font-size:0.82rem;margin-bottom:14px;line-height:1.55">
+            Get your API key at <a href="https://apollo.io" target="_blank" style="color:var(--accent)">apollo.io</a> → Settings → Integrations → API. Free tier includes 50 credits/month.
+          </p>
+          <div class="form-group" style="margin-bottom:12px">
+            <label>Apollo API Key</label>
+            <div class="key-field">
+              <input type="password" id="apolloKey" placeholder="your-apollo-api-key"/>
+              <button class="key-reveal" onclick="toggleReveal('apolloKey')">Show</button>
+            </div>
+          </div>
+          <button class="btn btn-primary" style="width:100%" onclick="saveApolloConfig()">Save Key</button>
+          <button class="btn btn-outline" style="width:100%;margin-top:8px" onclick="testApollo()">Test Connection</button>
+        </div>
+
+        <div class="settings-card" style="grid-column:1/-1">
+          <h3>🚀 Supabase Setup Guide</h3>
+          <p style="color:var(--muted);font-size:0.83rem;margin-bottom:12px;line-height:1.6">Run this SQL in your Supabase project (SQL Editor) to create the required tables:</p>
+          <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;font-size:0.78rem;color:var(--success);overflow:auto;white-space:pre-wrap">-- 1. Profiles (one per user)
+create table profiles (
+  id uuid references auth.users on delete cascade primary key,
+  first_name text, last_name text,
+  title text, company text,
+  email text, phone text, bio text,
+  links jsonb default '[]',
+  username text unique,
+  updated_at timestamptz default now()
+);
+
+-- 2. Leads (many per user)
+create table leads (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade,
+  name text not null, company text, email text, phone text,
+  notes text, status text default 'new',
+  enriched_data jsonb,
+  created_at timestamptz default now()
+);
+
+-- 3. Row Level Security
+alter table profiles enable row level security;
+alter table leads enable row level security;
+
+create policy "Own profile" on profiles for all using (auth.uid() = id);
+create policy "Own leads" on leads for all using (auth.uid() = user_id);</pre>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ── SCANNER MODAL ── -->
+<div class="modal-overlay" id="scannerModal">
+  <div class="scanner-modal">
+    <div class="scanner-modal-header">
+      <h3 id="scannerTitle">📷 Scan</h3>
+      <div class="scanner-tabs">
+        <button class="scanner-tab active" onclick="setScanMode('qr')">QR Code</button>
+        <button class="scanner-tab" onclick="setScanMode('ocr')">Business Card</button>
+      </div>
+      <button class="btn-sm btn-outline" onclick="closeScanner()">✕ Close</button>
+    </div>
+
+    <!-- QR Mode -->
+    <div id="qrScanPane" style="padding:0">
+      <div id="qr-reader"></div>
+      <div style="padding:16px;background:var(--surface)">
+        <p style="color:var(--muted);font-size:0.82rem;text-align:center">Point your camera at a NexCard QR code to instantly open the profile.</p>
+        <div id="qrResult" style="display:none;margin-top:12px" class="ocr-result"></div>
+      </div>
+    </div>
+
+    <!-- OCR Mode -->
+    <div id="ocrScanPane" style="display:none;padding:16px;background:var(--surface)">
+      <div class="ocr-drop" id="ocrDrop" onclick="document.getElementById('cardImageInput').click()">
+        <div style="font-size:2.5rem">📇</div>
+        <div style="font-weight:600;font-size:0.9rem">Take a photo or upload a business card</div>
+        <div style="color:var(--muted);font-size:0.8rem">Click or drag & drop an image here</div>
+        <input type="file" id="cardImageInput" accept="image/*" capture="environment" style="display:none" onchange="handleCardImage(event)"/>
+      </div>
+      <img id="ocrPreview" class="ocr-preview" style="display:none;margin-top:12px"/>
+      <div id="ocrProgress" style="display:none;margin-top:12px">
+        <div style="font-size:0.83rem;color:var(--muted);margin-bottom:4px" id="ocrStatus">Reading card...</div>
+        <div class="progress-bar"><div class="progress-fill" id="ocrFill" style="width:0%"></div></div>
+      </div>
+      <div id="ocrResult" style="display:none;margin-top:12px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── MODALS ── -->
+<div class="modal-overlay" id="vcardModal">
+  <div class="modal">
+    <h2>💾 Save Contact</h2>
+    <p>Download a .vcf file you can import to any phone or contact app.</p>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="downloadVCard()">Download .vcf</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="leadModal">
+  <div class="modal">
+    <h2 id="lmName"></h2>
+    <div id="lmBody" style="color:var(--muted);font-size:0.86rem;line-height:1.6;margin-bottom:20px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" onclick="deleteLead()">🗑 Delete</button>
+      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Close</button>
+      <button class="btn btn-primary" onclick="exportLeadVCard()">💾 Save Contact</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toastEl"></div>
+
+<script>
+// ════════════════════════════════════════
+// CONFIG — fill these in via Settings tab
+// ════════════════════════════════════════
+const CONFIG = {
+  supabaseUrl:  localStorage.getItem('nc_sbUrl')  || 'https://lczdvngzzzhhacncanfs.supabase.co',
+  supabaseKey:  localStorage.getItem('nc_sbKey')  || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjemR2bmd6enpoaGFjbmNhbmZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNzc3OTgsImV4cCI6MjA5MTk1Mzc5OH0.0-zJ1hDGM2ZLR8SlrQ5iy7ne8fvW8vDGIkNHujKiazc',
+  apolloKey:    localStorage.getItem('nc_apollo') || 'C0d9nz0iYEBWkh-WmLLZnw',
+};
+
+// ════════════════════════════════════════
+// SUPABASE INIT
+// ════════════════════════════════════════
+let sbClient = null;
+let currentUser = null;
+let isDemoMode = false;
+
+function initSupabase() {
+  try {
+    if (CONFIG.supabaseUrl && CONFIG.supabaseUrl !== 'YOUR_SUPABASE_URL') {
+      sbClient = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey);
+      return true;
+    }
+  } catch(e) { console.warn('Supabase init failed:', e); }
+  return false;
+}
+
+// ════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════
+let authMode = 'signin';
+
+function setAuthMode(m) {
+  authMode = m;
+  document.getElementById('tabSignin').classList.toggle('active', m === 'signin');
+  document.getElementById('tabSignup').classList.toggle('active', m === 'signup');
+  document.getElementById('signupExtra').style.display = m === 'signup' ? 'block' : 'none';
+  document.getElementById('authBtn').textContent = m === 'signin' ? 'Sign In' : 'Create Account';
+  clearAuthMsgs();
+}
+
+function clearAuthMsgs() {
+  document.getElementById('authErr').style.display = 'none';
+  document.getElementById('authOk').style.display = 'none';
+}
+
+function showAuthErr(msg) {
+  const el = document.getElementById('authErr');
+  el.textContent = msg; el.style.display = 'block';
+  document.getElementById('authOk').style.display = 'none';
+}
+function showAuthOk(msg) {
+  const el = document.getElementById('authOk');
+  el.textContent = msg; el.style.display = 'block';
+  document.getElementById('authErr').style.display = 'none';
+}
+
+async function handleAuth() {
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  clearAuthMsgs();
+
+  if (!email || !password) { showAuthErr('Please fill in all fields.'); return; }
+
+  const btn = document.getElementById('authBtn');
+  btn.disabled = true; btn.textContent = 'Please wait…';
+
+  if (!initSupabase()) {
+    showAuthErr('Supabase not configured. Use demo mode or add your project URL in Settings.');
+    btn.disabled = false; btn.textContent = authMode === 'signin' ? 'Sign In' : 'Create Account';
+    return;
+  }
+
+  try {
+    let result;
+    if (authMode === 'signin') {
+      result = await sbClient.auth.signInWithPassword({ email, password });
+    } else {
+      result = await sbClient.auth.signUp({ email, password });
+      if (!result.error) { showAuthOk('Account created! Check your email to confirm, or sign in now.'); btn.disabled = false; btn.textContent = 'Create Account'; return; }
+    }
+
+    if (result.error) throw result.error;
+    currentUser = result.data.user;
+    await launchApp();
+  } catch (err) {
+    showAuthErr(err.message || 'Authentication failed.');
+    btn.disabled = false; btn.textContent = authMode === 'signin' ? 'Sign In' : 'Create Account';
+  }
+}
+
+async function demoMode() {
+  isDemoMode = true;
+  profile = { ...demoProfile };
+  leads = [...demoLeads];
+  links = [...demoLinks];
+  document.getElementById('userEmailChip').textContent = 'demo@nexcard.app';
+  showApp();
+  renderAll();
+  toast('👋 Demo mode — changes won\'t be saved');
+  document.getElementById('configBanner').style.display = 'flex';
+  document.getElementById('configBannerMsg').innerHTML = 'You\'re in <b>demo mode</b>. Add Supabase credentials in <b>Settings</b> to save your data.';
+}
+
+async function launchApp() {
+  if (!sbClient|| !currentUser) return;
+  document.getElementById('userEmailChip').textContent = currentUser.email;
+  await loadProfile();
+  await loadLeads();
+  showApp();
+  renderAll();
+  checkConfigWarnings();
+}
+
+function showApp() {
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('appShell').style.display = 'block';
+}
+
+async function signOut() {
+  if (sbClient &&!isDemoMode) await sbClient.auth.signOut();
+  location.reload();
+}
+
+// ════════════════════════════════════════
+// PROFILE
+// ════════════════════════════════════════
+let profile = {};
+let links = [];
+
+const demoProfile = { firstName:'Jane', lastName:'Doe', title:'Product Designer', company:'Acme Corp', email:'jane@acmecorp.com', phone:'+1 (555) 234-5678', bio:'Designing products people love. Open to collaborations.' };
+const demoLinks = [{ emoji:'🌐', label:'Website', value:'acmecorp.com' },{ emoji:'💼', label:'LinkedIn', value:'linkedin.com/in/janedoe' },{ emoji:'🐦', label:'Twitter', value:'@janedoe' }];
+
+async function loadProfile() {
+  if (!sbClient|| !currentUser) return;
+  const { data } = await sbClient.from('profiles').select('*').eq('id', currentUser.id).single();
+  if (data) {
+    profile = { firstName: data.first_name||'', lastName: data.last_name||'', title: data.title||'', company: data.company||'', email: data.email||'', phone: data.phone||'', bio: data.bio||'' };
+    links = data.links || [];
+  } else {
+    profile = { firstName:'', lastName:'', title:'', company:'', email: currentUser.email||'', phone:'', bio:'' };
+    links = [];
+  }
+}
+
+async function saveProfile() {
+  profile.firstName = document.getElementById('firstName').value.trim();
+  profile.lastName  = document.getElementById('lastName').value.trim();
+  profile.title     = document.getElementById('jobTitle').value.trim();
+  profile.company   = document.getElementById('company').value.trim();
+  profile.email     = document.getElementById('cardEmail').value.trim();
+  profile.phone     = document.getElementById('phone').value.trim();
+  profile.bio       = document.getElementById('bio').value.trim();
+
+  if (!isDemoMode && sbClient &&currentUser) {
+    const { error } = await sbClient.from('profiles').upsert({
+      id: currentUser.id,
+      first_name: profile.firstName, last_name: profile.lastName,
+      title: profile.title, company: profile.company,
+      email: profile.email, phone: profile.phone, bio: profile.bio,
+      links: links, updated_at: new Date().toISOString()
+    });
+    if (error) { toast('❌ Save failed: ' + error.message); return; }
+  }
+  renderAll();
+  toast('✅ Card saved!');
+  switchView('card');
+}
+
+// ════════════════════════════════════════
+// LEADS
+// ════════════════════════════════════════
+let leads = [];
+let selectedLead = null;
+let selectedLeadId = null;
+
+const demoLeads = [
+  { id:'d1', name:'Alex Chen', company:'TechCo', email:'alex@techco.io', phone:'+1 555 100 2000', notes:'Met at DemoDay', status:'new' },
+  { id:'d2', name:'Maria Santos', company:'Venture Labs', email:'maria@vlabs.co', phone:'+1 555 200 3000', notes:'Intro call scheduled', status:'saved' },
+];
+
+async function loadLeads() {
+  if (!sbClient|| !currentUser) return;
+  const { data } = await sbClient.from('leads').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false });
+  leads = data || [];
+}
+
+async function saveLead(andEnrich = false) {
+  const name = document.getElementById('scanName').value.trim();
+  if (!name) { toast('Please enter a name'); return; }
+  const lead = {
+    name, company: document.getElementById('scanCompany').value.trim(),
+    email: document.getElementById('scanEmail').value.trim(),
+    phone: document.getElementById('scanPhone').value.trim(),
+    notes: document.getElementById('scanNotes').value.trim(),
+    status: 'new',
+  };
+
+  if (!isDemoMode && sbClient &&currentUser) {
+    const { data, error } = await sbClient.from('leads').insert({ ...lead, user_id: currentUser.id }).select().single();
+    if (error) { toast('❌ ' + error.message); return; }
+    leads.unshift(data);
+    if (andEnrich) await doEnrich(data.email || name, lead.company, data.id);
+  } else {
+    lead.id = 'demo_' + Date.now();
+    leads.unshift(lead);
+  }
+
+  ['scanName','scanCompany','scanEmail','scanPhone','scanNotes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('scanForm').style.display = 'none';
+  renderLeads();
+  updateLeadStat();
+  toast('✅ Lead saved!');
+}
+
+function enrichFromForm() { saveLead(true); }
+
+async function deleteLead() {
+  if (!selectedLeadId) return;
+  if (!isDemoMode && sbClient &&currentUser) {
+    await sbClient.from('leads').delete().eq('id', selectedLeadId);
+  }
+  leads = leads.filter(l => l.id !== selectedLeadId);
+  closeModal(); renderLeads(); updateLeadStat();
+  toast('🗑 Lead deleted');
+}
+
+// ════════════════════════════════════════
+// APOLLO ENRICHMENT
+// ════════════════════════════════════════
+async function runEnrichment() {
+  const input = document.getElementById('enrichInput').value.trim();
+  const company = document.getElementById('enrichCompany').value.trim();
+  if (!input) { toast('Enter a name or email first'); return; }
+  if (!input.includes('@') && !company) {
+    toast('⚠️ Add a company name for better name matching!');
+  }
+  await doEnrich(input, company, null, true);
+}
+
+async function doEnrich(input, company, leadId, showInPanel = false) {
+  const apiKey = CONFIG.apolloKey || localStorage.getItem('nc_apollo') || '';
+  const resultEl = document.getElementById('enrichResult');
+
+  if (showInPanel) {
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = `<div style="color:var(--muted);font-size:0.83rem"><span class="spinner"></span> Enriching via Apollo…</div>`;
+  }
+
+  // Apollo People Match — routed via Supabase Edge Function (avoids CORS)
+  const isEmail = input.includes('@');
+  const body = isEmail
+    ? { email: input }
+    : { name: input, ...(company ? { organization_name: company } : {}) };
+
+  // Call via Supabase Edge Function to avoid CORS
+  const edgeUrl = `${CONFIG.supabaseUrl}/functions/v1/enrich`;
+
+  try {
+    const res = await fetch(edgeUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${CONFIG.supabaseKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Apollo error ${res.status}: ${err}`);
+    }
+
+    const json = await res.json();
+    const p = json.person;
+
+    if (!p) {
+      const msg = `<div class="enrich-result" style="color:var(--muted)">No match found for <b>${input}</b>. Try adding a company name.</div>`;
+      if (showInPanel) resultEl.innerHTML = msg;
+      return null;
+    }
+
+    // Pull from all possible Apollo field locations
+    const org = p.organization || p.employment_history?.[0] || {};
+    const enriched = {
+      fullName:    p.name || [p.first_name, p.last_name].filter(Boolean).join(' ') || '',
+      title:       p.title || p.headline || org.title || '',
+      company:     org.name || p.organization_name || '',
+      email:       p.email || (p.personal_emails || [])[0] || '',
+      linkedin:    p.linkedin_url || '',
+      city:        p.city || p.present_raw_address || '',
+      country:     p.country || '',
+      seniority:   p.seniority || '',
+      departments: (p.departments || []).join(', '),
+      twitter:     p.twitter_url || '',
+      photo:       p.photo_url || '',
+    };
+
+    // Save enriched data to Supabase
+    if (!isDemoMode && sbClient &&currentUser && leadId) {
+      await sbClient.from('leads').update({ enriched_data: enriched, status: 'enriched' }).eq('id', leadId);
+      const idx = leads.findIndex(l => l.id === leadId);
+      if (idx > -1) { leads[idx].enriched_data = enriched; leads[idx].status = 'enriched'; }
+      renderLeads();
+    }
+
+    const hasData = enriched.title || enriched.company || enriched.email || enriched.linkedin;
+    const html = `<div class="enrich-result">
+      <div style="font-size:0.88rem;font-weight:700;color:var(--success);margin-bottom:10px">✓ Match found via Apollo</div>
+      ${row('Name', enriched.fullName)}
+      ${row('Title', enriched.title)}
+      ${row('Company', enriched.company)}
+      ${row('Email', enriched.email)}
+      ${row('LinkedIn', enriched.linkedin ? `<a href="${enriched.linkedin}" target="_blank" style="color:var(--accent)">${enriched.linkedin}</a>` : '—')}
+      ${row('Location', [enriched.city, enriched.country].filter(Boolean).join(', ') || '—')}
+      ${row('Seniority', enriched.seniority)}
+      ${enriched.twitter ? row('Twitter', `<a href="${enriched.twitter}" target="_blank" style="color:var(--accent)">${enriched.twitter}</a>`) : ''}
+      ${!hasData ? `<div style="margin-top:10px;padding:10px;background:rgba(245,158,11,0.1);border-radius:8px;font-size:0.8rem;color:var(--warn)">⚠️ Apollo matched this person but returned limited data. This can happen with name-only searches — try searching by email for full results.</div>` : ''}
+    </div>`;
+
+    if (showInPanel) resultEl.innerHTML = html;
+    toast('✨ Enriched!');
+    return enriched;
+  } catch(err) {
+    const msg = `<div class="enrich-result" style="color:var(--danger)">❌ ${err.message}<br><br><small>Note: Apollo may block browser requests due to CORS. Consider adding a lightweight proxy.</small></div>`;
+    if (showInPanel) resultEl.innerHTML = msg;
+    toast('❌ Enrichment failed');
+    console.error(err);
+    return null;
+  }
+}
+
+function row(label, val) {
+  return `<div class="enrich-row"><span class="enrich-label">${label}</span><span class="enrich-val">${val || '—'}</span></div>`;
+}
+
+async function testApollo() {
+  const key = document.getElementById('apolloKey').value.trim() || CONFIG.apolloKey;
+  if (!key) { toast('Enter your Apollo key first'); return; }
+  toast('Testing Apollo connection…');
+  CONFIG.apolloKey = key;
+  // Quick test via edge function
+  const res = await fetch(`${CONFIG.supabaseUrl}/functions/v1/enrich`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CONFIG.supabaseKey}` },
+    body: JSON.stringify({ email: 'test@apollo.io' })
+  });
+  if (res.status === 401) { toast('❌ Invalid API key'); }
+  else if (res.ok) { toast('✅ Apollo connected!'); }
+  else { toast('⚠️ Apollo responded with ' + res.status); }
+}
+
+// ════════════════════════════════════════
+// RENDER
+// ════════════════════════════════════════
+function renderAll() {
+  renderCard();
+  renderLinksEditor();
+  fillEditForm();
+  renderLeads();
+  renderQR();
+  updateLeadStat();
+  // fill settings
+  document.getElementById('sbUrl').value = CONFIG.supabaseUrl === 'YOUR_SUPABASE_URL' ? '' : CONFIG.supabaseUrl;
+  document.getElementById('sbKey').value = CONFIG.supabaseKey;
+  document.getElementById('apolloKey').value = CONFIG.apolloKey;
+}
+
+function renderCard() {
+  const full = `${profile.firstName} ${profile.lastName}`.trim() || 'Your Name';
+  document.getElementById('previewName').textContent = full;
+  document.getElementById('previewTitle').textContent = profile.title || 'Your Title';
+  document.getElementById('previewCompany').textContent = profile.company ? '@ ' + profile.company : '';
+  document.getElementById('avatarInitials').textContent = ((profile.firstName||'')[0]||(profile.lastName||'')[0]||'?').toUpperCase() + ((profile.lastName||'')[0]||(profile.firstName||'')[1]||'').toUpperCase();
+
+  const lc = document.getElementById('previewLinks');
+  lc.innerHTML = [
+    profile.email ? { emoji:'📧', label:'Email', value: profile.email } : null,
+    profile.phone ? { emoji:'📞', label:'Phone', value: profile.phone } : null,
+    ...links
+  ].filter(Boolean).slice(0,5).map(l => `
+    <div class="card-link">
+      <span style="font-size:1.1rem;width:22px;text-align:center">${l.emoji}</span>
+      <div><div style="font-weight:600;font-size:0.85rem">${l.label}</div><div style="color:var(--muted);font-size:0.78rem">${l.value}</div></div>
+    </div>`).join('');
+}
+
+function fillEditForm() {
+  document.getElementById('firstName').value = profile.firstName || '';
+  document.getElementById('lastName').value  = profile.lastName || '';
+  document.getElementById('jobTitle').value  = profile.title || '';
+  document.getElementById('company').value   = profile.company || '';
+  document.getElementById('cardEmail').value = profile.email || '';
+  document.getElementById('phone').value     = profile.phone || '';
+  document.getElementById('bio').value       = profile.bio || '';
+}
+
+function liveSync() {
+  profile.firstName = document.getElementById('firstName').value;
+  profile.lastName  = document.getElementById('lastName').value;
+  profile.title     = document.getElementById('jobTitle').value;
+  profile.company   = document.getElementById('company').value;
+  profile.email     = document.getElementById('cardEmail').value;
+  profile.phone     = document.getElementById('phone').value;
+  renderCard(); renderQR();
+}
+
+function renderLinksEditor() {
+  document.getElementById('linksEditor').innerHTML = links.map((l,i) => `
+    <div class="link-row">
+      <input type="text" value="${l.emoji}" style="padding:8px;text-align:center;font-size:1.2rem" maxlength="2" oninput="links[${i}].emoji=this.value"/>
+      <input type="text" value="${l.label}" placeholder="Label" oninput="links[${i}].label=this.value"/>
+      <input type="text" value="${l.value}" placeholder="URL or handle" oninput="links[${i}].value=this.value;renderCard()"/>
+      <button class="del-btn" onclick="removeLink(${i})">✕</button>
+    </div>`).join('');
+}
+
+function addLink() {
+  links.push({ emoji:'🔗', label:'Link', value:'' });
+  renderLinksEditor(); renderCard();
+}
+function removeLink(i) { links.splice(i,1); renderLinksEditor(); renderCard(); }
+
+function renderLeads() {
+  const el = document.getElementById('leadsList');
+  if (!leads.length) {
+    el.innerHTML = '<p style="color:var(--muted);text-align:center;padding:40px 0">No leads yet. Add your first connection!</p>';
+    return;
+  }
+  el.innerHTML = leads.map((l,i) => `
+    <div class="lead-card" onclick="openLead(${i})">
+      <div class="lead-avatar">${l.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
+      <div style="flex:1">
+        <div class="lead-name">${l.name}</div>
+        <div class="lead-detail">${[l.company, l.email].filter(Boolean).join(' · ')}</div>
+        ${l.enriched_data ? `<div style="font-size:0.72rem;color:var(--warn);margin-top:2px">✨ Enriched</div>` : ''}
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <span class="lead-badge badge-${l.status === 'enriched' ? 'enriched' : l.status === 'new' ? 'new' : 'saved'}">${l.status === 'enriched' ? '✨ Enriched' : l.status === 'new' ? '🟢 New' : '✓ Saved'}</span>
+      </div>
+    </div>`).join('');
+}
+
+function openLead(i) {
+  const l = leads[i];
+  selectedLead = l; selectedLeadId = l.id;
+  document.getElementById('lmName').textContent = l.name;
+  let body = `<b>${l.company||'—'}</b><br>${l.email||''} ${l.phone ? '· '+l.phone : ''}`;
+  if (l.notes) body += `<br><br><i>${l.notes}</i>`;
+  if (l.enriched_data) {
+    const e = l.enriched_data;
+    body += `<br><br><div style="background:var(--surface2);border-radius:10px;padding:12px;margin-top:4px">
+      <div style="font-size:0.75rem;font-weight:700;color:var(--warn);margin-bottom:8px">✨ Apollo Enrichment</div>
+      ${e.title ? row('Title',e.title) : ''}
+      ${e.linkedin ? row('LinkedIn',`<a href="${e.linkedin}" target="_blank" style="color:var(--accent)">${e.linkedin}</a>`) : ''}
+      ${e.city||e.country ? row('Location',[e.city,e.country].filter(Boolean).join(', ')) : ''}
+    </div>`;
+  }
+  document.getElementById('lmBody').innerHTML = body;
+  if (l.status === 'new') { leads[i].status = 'saved'; if (!isDemoMode && sbClient &&currentUser) sbClient.from('leads').update({status:'saved'}).eq('id',l.id); renderLeads(); }
+  openModal('leadModal');
+}
+
+function exportLeadVCard() {
+  if (!selectedLead) return;
+  const l = selectedLead;
+  const vc = `BEGIN:VCARD\nVERSION:3.0\nFN:${l.name}\nORG:${l.company||''}\nEMAIL:${l.email||''}\nTEL:${l.phone||''}\nNOTE:${l.notes||''}\nEND:VCARD`;
+  const a = document.createElement('a'); a.download = `${l.name.replace(/\s/g,'_')}.vcf`;
+  a.href = URL.createObjectURL(new Blob([vc],{type:'text/vcard'})); a.click();
+  closeModal(); toast('💾 Contact saved!');
+}
+
+function updateLeadStat() {
+  document.getElementById('statLeads').textContent = leads.length || '0';
+  document.getElementById('statViews').textContent = Math.floor(Math.random()*200 + 100);
+  document.getElementById('statTaps').textContent  = leads.length ? leads.length * 3 : '—';
+}
+
+// ════════════════════════════════════════
+// QR
+// ════════════════════════════════════════
+let qrInstance = null;
+function renderQR() {
+  const cont = document.getElementById('qr-container');
+  const slug = ((profile.firstName||'') + (profile.lastName||'')).toLowerCase().replace(/\s/g,'') || 'yourname';
+  const url  = `https://nexcard.app/${slug}`;
+  document.getElementById('qrUrl').textContent = url;
+  cont.innerHTML = '';
+  qrInstance = new QRCode(cont, { text: url, width: 190, height: 190, colorDark: '#0f3460', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.H });
+}
+
+function downloadQR() {
+  const c = document.querySelector('#qr-container canvas');
+  if (!c) return;
+  const a = document.createElement('a'); a.download = 'nexcard-qr.png'; a.href = c.toDataURL(); a.click();
+  toast('📥 QR downloaded!');
+}
+
+// ════════════════════════════════════════
+// VCARD
+// ════════════════════════════════════════
+function buildVCard() {
+  const lnks = links.map(l=>`URL;TYPE=${l.label}:${l.value}`).join('\n');
+  return `BEGIN:VCARD\nVERSION:3.0\nFN:${profile.firstName} ${profile.lastName}\nN:${profile.lastName};${profile.firstName};;;\nORG:${profile.company||''}\nTITLE:${profile.title||''}\nEMAIL:${profile.email||''}\nTEL:${profile.phone||''}\nNOTE:${profile.bio||''}\n${lnks}\nEND:VCARD`;
+}
+function downloadVCard() {
+  const a = document.createElement('a'); a.download = `${profile.firstName||'card'}_${profile.lastName||''}.vcf`;
+  a.href = URL.createObjectURL(new Blob([buildVCard()],{type:'text/vcard'})); a.click();
+  closeModal(); toast('💾 Contact saved!');
+}
+
+// ════════════════════════════════════════
+// SHARE
+// ════════════════════════════════════════
+function copyProfileLink() {
+  const slug = ((profile.firstName||'')+(profile.lastName||'')).toLowerCase();
+  navigator.clipboard.writeText(`https://nexcard.app/${slug}`).then(() => toast('🔗 Link copied!'));
+}
+function shareNative() {
+  const slug = ((profile.firstName||'')+(profile.lastName||'')).toLowerCase();
+  const url  = `https://nexcard.app/${slug}`;
+  if (navigator.share) navigator.share({ title: profile.firstName + '\'s NexCard', url });
+  else copyProfileLink();
+}
+
+// ════════════════════════════════════════
+// AVATAR
+// ════════════════════════════════════════
+function handleAvatarChange(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const w = document.getElementById('avatarWrap');
+    let img = w.querySelector('img');
+    if (!img) { img = document.createElement('img'); w.insertBefore(img, w.firstChild); }
+    img.src = ev.target.result;
+    document.getElementById('avatarInitials').style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+}
+document.getElementById('avatarWrap').addEventListener('click', () => document.getElementById('avatarInput').click());
+
+// ════════════════════════════════════════
+// SETTINGS
+// ════════════════════════════════════════
+function saveSupabaseConfig() {
+  const url = document.getElementById('sbUrl').value.trim();
+  const key = document.getElementById('sbKey').value.trim();
+  if (!url || !key) { toast('Enter both URL and key'); return; }
+  localStorage.setItem('nc_sbUrl', url); localStorage.setItem('nc_sbKey', key);
+  CONFIG.supabaseUrl = url; CONFIG.supabaseKey = key;
+  const ok = initSupabase();
+  toast(ok ? '✅ Supabase configured! Sign in to test.' : '❌ Could not connect');
+}
+
+function saveApolloConfig() {
+  const key = document.getElementById('apolloKey').value.trim();
+  if (!key) { toast('Enter your Apollo API key'); return; }
+  localStorage.setItem('nc_apollo', key); CONFIG.apolloKey = key;
+  toast('✅ Apollo key saved!');
+}
+
+function toggleReveal(id) {
+  const el = document.getElementById(id);
+  const btn = el.nextElementSibling;
+  if (el.type === 'password') { el.type = 'text'; btn.textContent = 'Hide'; }
+  else { el.type = 'password'; btn.textContent = 'Show'; }
+}
+
+function checkConfigWarnings() {
+  const missing = [];
+  if (!CONFIG.apolloKey) missing.push('Apollo API key');
+  if (CONFIG.supabaseUrl === 'YOUR_SUPABASE_URL') missing.push('Supabase project URL');
+  if (missing.length) {
+    document.getElementById('configBanner').style.display = 'flex';
+    document.getElementById('configBannerMsg').innerHTML = `⚠️ Missing: <b>${missing.join(', ')}</b>. Configure in <b>Settings</b>.`;
+  }
+}
+
+// ════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════
+function switchView(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('view-' + id).classList.add('active');
+  const labels = { card:0, edit:1, leads:2, settings:3 };
+  document.querySelectorAll('.nav-tab')[labels[id]]?.classList.add('active');
+}
+
+function toggleScanForm() {
+  const f = document.getElementById('scanForm');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  if (f.style.display === 'block') f.scrollIntoView({ behavior:'smooth' });
+}
+
+function exportCSV() {
+  const h = 'Name,Company,Email,Phone,Notes,Status\n';
+  const r = leads.map(l=>`"${l.name}","${l.company||''}","${l.email||''}","${l.phone||''}","${l.notes||''}","${l.status||''}"`).join('\n');
+  const a = document.createElement('a'); a.download = 'nexcard-leads.csv';
+  a.href = URL.createObjectURL(new Blob([h+r],{type:'text/csv'})); a.click();
+  toast('📊 CSV exported!');
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal() { document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('open')); }
+document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)closeModal();}));
+
+function toast(msg) {
+  const t = document.getElementById('toastEl'); t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2800);
+}
+
+// ════════════════════════════════════════
+// BOOT
+// ════════════════════════════════════════
+(async function boot() {
+  // Load saved keys
+  CONFIG.supabaseUrl = localStorage.getItem('nc_sbUrl') || CONFIG.supabaseUrl;
+  CONFIG.supabaseKey = localStorage.getItem('nc_sbKey') || CONFIG.supabaseKey;
+  CONFIG.apolloKey   = localStorage.getItem('nc_apollo') || CONFIG.apolloKey;
+
+  if (!initSupabase()) return; // no URL configured, stay on auth screen
+
+  // Check for existing session
+  const { data: { session } } = await sbClient.auth.getSession();
+  if (session?.user) {
+    currentUser = session.user;
+    await launchApp();
+  }
+})();
+
+// ════════════════════════════════════════
+// SCANNER — QR + OCR
+// ════════════════════════════════════════
+let html5QrScanner = null;
+let scanMode = 'qr';
+
+function openScanner(mode) {
+  openModal('scannerModal');
+  setScanMode(mode);
+}
+
+function setScanMode(mode) {
+  scanMode = mode;
+  document.querySelectorAll('.scanner-tab').forEach((t,i) => t.classList.toggle('active', (i===0&&mode==='qr')||(i===1&&mode==='ocr')));
+  document.getElementById('qrScanPane').style.display  = mode === 'qr'  ? 'block' : 'none';
+  document.getElementById('ocrScanPane').style.display = mode === 'ocr' ? 'block' : 'none';
+  document.getElementById('scannerTitle').textContent  = mode === 'qr'  ? '📷 Scan QR Code' : '📇 Scan Business Card';
+  if (mode === 'qr') startQRScanner();
+  else stopQRScanner();
+}
+
+function startQRScanner() {
+  stopQRScanner();
+  document.getElementById('qr-reader').innerHTML = '';
+  document.getElementById('qrResult').style.display = 'none';
+
+  html5QrScanner = new Html5Qrcode('qr-reader');
+  html5QrScanner.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 250, height: 250 } },
+    (decodedText) => {
+      // QR detected!
+      stopQRScanner();
+      const resultEl = document.getElementById('qrResult');
+      resultEl.style.display = 'block';
+
+      // If it looks like a NexCard URL, show it nicely
+      if (decodedText.includes('nexcard.app') || decodedText.startsWith('http')) {
+        resultEl.innerHTML = `
+          <div style="color:var(--success);font-weight:700;margin-bottom:8px">✅ QR Code Detected!</div>
+          <div style="color:var(--muted);font-size:0.8rem;margin-bottom:12px;word-break:break-all">${decodedText}</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" onclick="window.open('${decodedText}','_blank')">Open Profile</button>
+            <button class="btn btn-outline" onclick="startQRScanner()">Scan Again</button>
+          </div>`;
+      } else {
+        resultEl.innerHTML = `
+          <div style="color:var(--success);font-weight:700;margin-bottom:8px">✅ QR Code Detected!</div>
+          <div style="margin-bottom:12px;word-break:break-all">${decodedText}</div>
+          <button class="btn btn-outline" onclick="startQRScanner()">Scan Again</button>`;
+      }
+    },
+    () => {} // scan failure - silent
+  ).catch(err => {
+    document.getElementById('qr-reader').innerHTML =
+      `<div style="padding:32px;text-align:center;color:var(--danger)">❌ Camera access denied.<br><small>Please allow camera access in your browser settings.</small></div>`;
+  });
+}
+
+function stopQRScanner() {
+  if (html5QrScanner) {
+    html5QrScanner.stop().catch(() => {});
+    html5QrScanner = null;
+  }
+}
+
+function closeScanner() {
+  stopQRScanner();
+  closeModal();
+  // Reset OCR pane
+  document.getElementById('ocrResult').style.display = 'none';
+  document.getElementById('ocrProgress').style.display = 'none';
+  document.getElementById('ocrPreview').style.display = 'none';
+  document.getElementById('cardImageInput').value = '';
+}
+
+// ── OCR ──
+async function handleCardImage(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // Show preview
+  const preview = document.getElementById('ocrPreview');
+  preview.src = URL.createObjectURL(file);
+  preview.style.display = 'block';
+  document.getElementById('ocrDrop').style.display = 'none';
+
+  // Show progress
+  const progress = document.getElementById('ocrProgress');
+  const status   = document.getElementById('ocrStatus');
+  const fill     = document.getElementById('ocrFill');
+  const result   = document.getElementById('ocrResult');
+  progress.style.display = 'block';
+  result.style.display   = 'none';
+
+  try {
+    const { data: { text } } = await Tesseract.recognize(file, 'eng', {
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          fill.style.width = Math.round(m.progress * 100) + '%';
+          status.textContent = `Reading card… ${Math.round(m.progress * 100)}%`;
+        }
+      }
+    });
+
+    progress.style.display = 'none';
+    const parsed = parseBusinessCard(text);
+
+    result.style.display = 'block';
+    result.innerHTML = `
+      <div style="color:var(--success);font-weight:700;margin-bottom:12px">✅ Card read successfully!</div>
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="form-group"><label>Name</label><input type="text" id="ocrName" value="${parsed.name}"/></div>
+        <div class="form-group"><label>Company</label><input type="text" id="ocrCompany" value="${parsed.company}"/></div>
+        <div class="form-group"><label>Email</label><input type="email" id="ocrEmail" value="${parsed.email}"/></div>
+        <div class="form-group"><label>Phone</label><input type="tel" id="ocrPhone" value="${parsed.phone}"/></div>
+        <div class="form-group full"><label>Title</label><input type="text" id="ocrTitle" value="${parsed.title}"/></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="saveOCRLead()">💾 Save as Lead</button>
+        <button class="btn btn-outline" onclick="enrichOCRLead()">✨ Save & Enrich</button>
+        <button class="btn btn-outline" onclick="resetOCR()">📷 Scan Another</button>
+      </div>`;
+  } catch(err) {
+    progress.style.display = 'none';
+    result.style.display = 'block';
+    result.innerHTML = `<div style="color:var(--danger)">❌ Could not read card. Try a clearer photo with good lighting.</div>`;
+  }
+}
+
+function parseBusinessCard(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const emailMatch = text.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
+  const phoneMatch = text.match(/(\+?[\d][\d\s\-().]{7,}[\d])/);
+
+  // Heuristic: name is usually the first non-email, non-phone, non-URL line
+  const nameLine = lines.find(l =>
+    !l.includes('@') && !l.match(/\d{4,}/) &&
+    !l.match(/https?:\/\//) && l.length > 2 && l.length < 50
+  ) || '';
+
+  // Title keywords
+  const titleLine = lines.find(l =>
+    l.match(/\b(CEO|CTO|CFO|COO|VP|Director|Manager|Engineer|Designer|Founder|President|Head|Lead|Senior|Junior|Analyst|Consultant|Officer|Partner)\b/i)
+  ) || '';
+
+  // Company: often ALL CAPS or after title
+  const companyLine = lines.find(l =>
+    l !== nameLine && l !== titleLine && !l.includes('@') &&
+    !l.match(/\d{4,}/) && l.length > 2 && l.length < 60 &&
+    (l === l.toUpperCase() || l.match(/\b(Inc|LLC|Ltd|Corp|Co\.|Group|Solutions|Technologies|Services|Consulting)\b/i))
+  ) || '';
+
+  return {
+    name:    nameLine,
+    title:   titleLine,
+    company: companyLine,
+    email:   emailMatch ? emailMatch[0] : '',
+    phone:   phoneMatch ? phoneMatch[0].trim() : '',
+  };
+}
+
+async function saveOCRLead(andEnrich = false) {
+  const name = document.getElementById('ocrName')?.value.trim();
+  if (!name) { toast('Name is required'); return; }
+
+  const lead = {
+    name,
+    company: document.getElementById('ocrCompany')?.value.trim() || '',
+    email:   document.getElementById('ocrEmail')?.value.trim() || '',
+    phone:   document.getElementById('ocrPhone')?.value.trim() || '',
+    notes:   `Scanned from business card`,
+    status:  'new',
+  };
+
+  if (!isDemoMode && sbClient && currentUser) {
+    const { data, error } = await sbClient.from('leads').insert({ ...lead, user_id: currentUser.id }).select().single();
+    if (error) { toast('❌ ' + error.message); return; }
+    leads.unshift(data);
+    if (andEnrich && lead.email) await doEnrich(lead.email, lead.company, data.id);
+  } else {
+    lead.id = 'ocr_' + Date.now();
+    leads.unshift(lead);
+  }
+
+  renderLeads(); updateLeadStat();
+  closeScanner();
+  switchView('leads');
+  toast('✅ Lead saved from card scan!');
+}
+
+function enrichOCRLead() { saveOCRLead(true); }
+
+function resetOCR() {
+  document.getElementById('ocrDrop').style.display = 'flex';
+  document.getElementById('ocrPreview').style.display = 'none';
+  document.getElementById('ocrResult').style.display = 'none';
+  document.getElementById('ocrProgress').style.display = 'none';
+  document.getElementById('cardImageInput').value = '';
+}
+
+// Drag & drop on OCR drop zone
+document.addEventListener('DOMContentLoaded', () => {
+  const drop = document.getElementById('ocrDrop');
+  if (!drop) return;
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragging'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('dragging'));
+  drop.addEventListener('drop', e => {
+    e.preventDefault(); drop.classList.remove('dragging');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+      const dt = new DataTransfer(); dt.items.add(file);
+      document.getElementById('cardImageInput').files = dt.files;
+      handleCardImage({ target: { files: [file] } });
+    }
+  });
+});
+</script>
+</body>
+</html>
