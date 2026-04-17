@@ -333,7 +333,6 @@
         <button class="nav-tab active" onclick="switchView('card')">My Card</button>
         <button class="nav-tab" onclick="switchView('edit')">Edit</button>
         <button class="nav-tab" onclick="switchView('leads')">Leads <span class="badge-pulse"></span></button>
-        <button class="nav-tab" onclick="switchView('settings')">Settings</button>
       </div>
       <div class="user-chip">
         <div class="user-dot"></div>
@@ -344,10 +343,6 @@
   </nav>
 
   <main>
-    <!-- CONFIG BANNER (shown when keys missing) -->
-    <div class="config-banner" id="configBanner" style="display:none">
-      ⚠️ <span id="configBannerMsg">Add your API credentials in <b>Settings</b> to unlock all features.</span>
-    </div>
 
     <!-- ── MY CARD ── -->
     <div class="view active" id="view-card">
@@ -526,78 +521,6 @@
       </div>
     </div>
 
-    <!-- ── SETTINGS ── -->
-    <div class="view" id="view-settings">
-      <div style="margin-bottom:20px">
-        <h1 style="font-size:1.55rem;font-weight:800;margin-bottom:4px">Settings</h1>
-        <p style="color:var(--muted);font-size:0.88rem">Configure your API connections.</p>
-      </div>
-      <div class="settings-grid">
-        <div class="settings-card">
-          <h3>🗄 Supabase</h3>
-          <div class="form-group" style="margin-bottom:12px">
-            <label>Project URL</label>
-            <input type="url" id="sbUrl" placeholder="https://xxxx.supabase.co"/>
-          </div>
-          <div class="form-group" style="margin-bottom:12px">
-            <label>Anon / Publishable Key</label>
-            <div class="key-field">
-              <input type="password" id="sbKey" placeholder="sb_publishable_..."/>
-              <button class="key-reveal" onclick="toggleReveal('sbKey')">Show</button>
-            </div>
-          </div>
-          <button class="btn btn-primary" style="width:100%" onclick="saveSupabaseConfig()">Save & Reconnect</button>
-        </div>
-
-        <div class="settings-card">
-          <h3>🔍 Apollo.io Enrichment</h3>
-          <p style="color:var(--muted);font-size:0.82rem;margin-bottom:14px;line-height:1.55">
-            Get your API key at <a href="https://apollo.io" target="_blank" style="color:var(--accent)">apollo.io</a> → Settings → Integrations → API. Free tier includes 50 credits/month.
-          </p>
-          <div class="form-group" style="margin-bottom:12px">
-            <label>Apollo API Key</label>
-            <div class="key-field">
-              <input type="password" id="apolloKey" placeholder="your-apollo-api-key"/>
-              <button class="key-reveal" onclick="toggleReveal('apolloKey')">Show</button>
-            </div>
-          </div>
-          <button class="btn btn-primary" style="width:100%" onclick="saveApolloConfig()">Save Key</button>
-          <button class="btn btn-outline" style="width:100%;margin-top:8px" onclick="testApollo()">Test Connection</button>
-        </div>
-
-        <div class="settings-card" style="grid-column:1/-1">
-          <h3>🚀 Supabase Setup Guide</h3>
-          <p style="color:var(--muted);font-size:0.83rem;margin-bottom:12px;line-height:1.6">Run this SQL in your Supabase project (SQL Editor) to create the required tables:</p>
-          <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;font-size:0.78rem;color:var(--success);overflow:auto;white-space:pre-wrap">-- 1. Profiles (one per user)
-create table profiles (
-  id uuid references auth.users on delete cascade primary key,
-  first_name text, last_name text,
-  title text, company text,
-  email text, phone text, bio text,
-  links jsonb default '[]',
-  username text unique,
-  updated_at timestamptz default now()
-);
-
--- 2. Leads (many per user)
-create table leads (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users on delete cascade,
-  name text not null, company text, email text, phone text,
-  notes text, status text default 'new',
-  enriched_data jsonb,
-  created_at timestamptz default now()
-);
-
--- 3. Row Level Security
-alter table profiles enable row level security;
-alter table leads enable row level security;
-
-create policy "Own profile" on profiles for all using (auth.uid() = id);
-create policy "Own leads" on leads for all using (auth.uid() = user_id);</pre>
-        </div>
-      </div>
-    </div>
   </main>
 </div>
 
@@ -794,7 +717,6 @@ async function launchApp() {
   await loadEvents();
   showApp();
   renderAll();
-  checkConfigWarnings();
 }
 
 function showApp() {
@@ -1292,42 +1214,6 @@ function handleAvatarChange(e) {
 }
 document.getElementById('avatarWrap').addEventListener('click', () => document.getElementById('avatarInput').click());
 
-// ════════════════════════════════════════
-// SETTINGS
-// ════════════════════════════════════════
-function saveSupabaseConfig() {
-  const url = document.getElementById('sbUrl').value.trim();
-  const key = document.getElementById('sbKey').value.trim();
-  if (!url || !key) { toast('Enter both URL and key'); return; }
-  localStorage.setItem('nc_sbUrl', url); localStorage.setItem('nc_sbKey', key);
-  CONFIG.supabaseUrl = url; CONFIG.supabaseKey = key;
-  const ok = initSupabase();
-  toast(ok ? '✅ Supabase configured! Sign in to test.' : '❌ Could not connect');
-}
-
-function saveApolloConfig() {
-  const key = document.getElementById('apolloKey').value.trim();
-  if (!key) { toast('Enter your Apollo API key'); return; }
-  localStorage.setItem('nc_apollo', key); CONFIG.apolloKey = key;
-  toast('✅ Apollo key saved!');
-}
-
-function toggleReveal(id) {
-  const el = document.getElementById(id);
-  const btn = el.nextElementSibling;
-  if (el.type === 'password') { el.type = 'text'; btn.textContent = 'Hide'; }
-  else { el.type = 'password'; btn.textContent = 'Show'; }
-}
-
-function checkConfigWarnings() {
-  const missing = [];
-  if (!CONFIG.apolloKey) missing.push('Apollo API key');
-  if (CONFIG.supabaseUrl === 'YOUR_SUPABASE_URL') missing.push('Supabase project URL');
-  if (missing.length) {
-    document.getElementById('configBanner').style.display = 'flex';
-    document.getElementById('configBannerMsg').innerHTML = `⚠️ Missing: <b>${missing.join(', ')}</b>. Configure in <b>Settings</b>.`;
-  }
-}
 
 // ════════════════════════════════════════
 // HELPERS
@@ -1336,7 +1222,7 @@ function switchView(id) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.getElementById('view-' + id).classList.add('active');
-  const labels = { card:0, edit:1, leads:2, settings:3 };
+  const labels = { card:0, edit:1, leads:2 };
   document.querySelectorAll('.nav-tab')[labels[id]]?.classList.add('active');
 }
 
