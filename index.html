@@ -216,6 +216,29 @@
     .badge-pulse { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--success); margin-left: 5px; animation: pulse 1.5s infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
+    /* ── EVENTS ── */
+    .events-sidebar { display:flex; flex-direction:column; gap:8px; }
+    .event-chip {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:10px 14px; border-radius:12px; border:1px solid var(--border);
+      background:var(--surface); cursor:pointer; transition:all 0.2s; gap:8px;
+    }
+    .event-chip:hover { border-color:var(--accent); }
+    .event-chip.active { border-color:var(--accent); background:rgba(124,92,252,0.12); }
+    .event-chip.is-live { border-color:var(--success); }
+    .event-name { font-weight:600; font-size:0.88rem; }
+    .event-meta { font-size:0.75rem; color:var(--muted); }
+    .event-count { font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:20px; background:rgba(124,92,252,0.15); color:var(--accent); }
+    .live-badge { font-size:0.68rem; font-weight:700; padding:2px 8px; border-radius:20px; background:rgba(34,211,165,0.15); color:var(--success); }
+    .tag-chip { display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:20px; font-size:0.72rem; font-weight:600; background:rgba(124,92,252,0.12); color:var(--accent); margin:2px; }
+    .tag-chip button { background:none; border:none; cursor:pointer; color:var(--muted); font-size:0.7rem; padding:0; line-height:1; }
+    .filter-bar { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; align-items:center; }
+    .filter-chip { padding:5px 12px; border-radius:20px; border:1px solid var(--border); background:var(--surface2); color:var(--muted); font-size:0.8rem; font-weight:600; cursor:pointer; transition:all 0.2s; }
+    .filter-chip:hover { border-color:var(--accent); color:var(--text); }
+    .filter-chip.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .leads-layout { display:grid; grid-template-columns:220px 1fr; gap:20px; align-items:start; }
+    .events-panel { background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:18px; position:sticky; top:80px; }
+
     /* ── SCANNER MODAL ── */
     .scanner-modal { background: #000; border-radius: 20px; width: 100%; max-width: 480px; overflow: hidden; }
     .scanner-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; background: var(--surface); }
@@ -404,7 +427,7 @@
       <div class="leads-header">
         <div>
           <h1 style="font-size:1.55rem;font-weight:800;margin-bottom:4px">Leads & Connections</h1>
-          <p style="color:var(--muted);font-size:0.88rem">People who scanned your card or shared their info.</p>
+          <p style="color:var(--muted);font-size:0.88rem" id="leadsSubtitle">All leads across all events.</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-outline" onclick="openScanner('qr')">📷 Scan QR</button>
@@ -413,13 +436,18 @@
         </div>
       </div>
 
-      <div id="scanForm" style="display:none" class="panel" style="margin-bottom:20px;max-width:700px">
+      <!-- Add Lead Form -->
+      <div id="scanForm" style="display:none" class="panel" style="margin-bottom:20px;max-width:760px">
         <div class="section-label">New Lead</div>
         <div class="form-grid">
           <div class="form-group"><label>Name *</label><input type="text" id="scanName" placeholder="Alex Smith"/></div>
           <div class="form-group"><label>Company</label><input type="text" id="scanCompany" placeholder="Startup Inc."/></div>
           <div class="form-group"><label>Email</label><input type="email" id="scanEmail" placeholder="alex@startup.io"/></div>
           <div class="form-group"><label>Phone</label><input type="tel" id="scanPhone" placeholder="+1 555 000 1234"/></div>
+          <div class="form-group"><label>Event</label>
+            <select id="scanEvent"><option value="">— No event —</option></select>
+          </div>
+          <div class="form-group"><label>Tags (comma separated)</label><input type="text" id="scanTags" placeholder="vip, follow-up, investor"/></div>
           <div class="form-group full"><label>Notes</label><textarea id="scanNotes" placeholder="Where you met, what to follow up on..."></textarea></div>
         </div>
         <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
@@ -429,26 +457,55 @@
         </div>
       </div>
 
-      <div class="leads-grid">
+      <!-- Main layout: Events sidebar + leads list + enrichment panel -->
+      <div class="leads-layout">
+
+        <!-- Events Sidebar -->
         <div>
+          <div class="events-panel">
+            <div class="panel-title">📅 Events</div>
+            <div class="events-sidebar" id="eventsSidebar"></div>
+            <button class="add-btn" style="margin-top:10px" onclick="openModal('newEventModal')">+ New Event</button>
+          </div>
+        </div>
+
+        <!-- Center: filter bar + leads list + enrichment -->
+        <div>
+          <!-- Filter bar -->
+          <div class="filter-bar" id="filterBar">
+            <span style="font-size:0.8rem;color:var(--muted);font-weight:600">Filter:</span>
+          </div>
+
+          <!-- Stats strip for active event -->
+          <div id="eventStats" style="display:none;margin-bottom:16px">
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+              <div class="stat-card"><div class="stat-num" id="evtTotal">0</div><div class="stat-label">Total Leads</div></div>
+              <div class="stat-card"><div class="stat-num" id="evtEnriched">0</div><div class="stat-label">Enriched</div></div>
+              <div class="stat-card"><div class="stat-num" id="evtNew">0</div><div class="stat-label">New</div></div>
+            </div>
+          </div>
+
           <div class="leads-list" id="leadsList">
             <p style="color:var(--muted);text-align:center;padding:40px 0">No leads yet. Add your first connection!</p>
           </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">✨ Apollo Enrichment</div>
-            <p style="color:var(--muted);font-size:0.82rem;margin-bottom:14px;line-height:1.55">Enter an email or name to pull LinkedIn, job title, company info automatically via Apollo.io.</p>
-            <div class="form-group"><label>Email <span style="color:var(--success)">★ best</span> or Full Name</label><input type="text" id="enrichInput" placeholder="alex@company.com"/></div>
-            <div class="form-group"><label>Company <span style="color:var(--warn)">(required for name-only searches)</span></label><input type="text" id="enrichCompany" placeholder="Acme Corp"/></div>
-            <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="runEnrichment()">✨ Enrich Now</button>
-            <div id="enrichResult" style="display:none;margin-top:14px"></div>
-          </div>
-          <div class="panel" style="margin-top:16px">
-            <div class="panel-title">Export</div>
-            <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-outline" style="width:100%;text-align:left" onclick="exportCSV()">📊 Export as CSV</button>
-              <button class="btn btn-outline" style="width:100%;text-align:left" onclick="toast('🔗 CRM sync coming soon!')">🔗 Sync to CRM</button>
+
+          <!-- Enrichment + Export -->
+          <div style="margin-top:20px;display:flex;flex-direction:column;gap:14px">
+            <div class="panel">
+              <div class="panel-title">✨ Apollo Enrichment</div>
+              <p style="color:var(--muted);font-size:0.82rem;margin-bottom:14px;line-height:1.55">Enter an email or name to pull LinkedIn, job title, company info via Apollo.io.</p>
+              <div class="form-group"><label>Email <span style="color:var(--success)">★ best</span> or Full Name</label><input type="text" id="enrichInput" placeholder="alex@company.com"/></div>
+              <div class="form-group"><label>Company <span style="color:var(--warn)">(required for name-only searches)</span></label><input type="text" id="enrichCompany" placeholder="Acme Corp"/></div>
+              <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="runEnrichment()">✨ Enrich Now</button>
+              <div id="enrichResult" style="display:none;margin-top:14px"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">Export</div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <button class="btn btn-outline" style="width:100%;text-align:left" onclick="exportCSV()">📊 Export All Leads (CSV)</button>
+                <button class="btn btn-outline" style="width:100%;text-align:left" id="exportEventBtn" style="display:none" onclick="exportEventCSV()">📊 Export This Event (CSV)</button>
+                <button class="btn btn-outline" style="width:100%;text-align:left" onclick="toast('🔗 CRM sync coming soon!')">🔗 Sync to CRM</button>
+              </div>
             </div>
           </div>
         </div>
@@ -528,6 +585,21 @@ create policy "Own leads" on leads for all using (auth.uid() = user_id);</pre>
       </div>
     </div>
   </main>
+</div>
+
+<!-- ── NEW EVENT MODAL ── -->
+<div class="modal-overlay" id="newEventModal">
+  <div class="modal">
+    <h2>📅 New Event</h2>
+    <p>Create an event to group leads from the same show or conference.</p>
+    <div class="form-group" style="margin-bottom:12px"><label>Event Name *</label><input type="text" id="newEventName" placeholder="CES 2026"/></div>
+    <div class="form-group" style="margin-bottom:12px"><label>Location</label><input type="text" id="newEventLocation" placeholder="Las Vegas, NV"/></div>
+    <div class="form-group" style="margin-bottom:20px"><label>Date</label><input type="date" id="newEventDate"/></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="createEvent()">Create & Go Live</button>
+    </div>
+  </div>
 </div>
 
 <!-- ── SCANNER MODAL ── -->
@@ -692,6 +764,7 @@ async function demoMode() {
   leads = [...demoLeads];
   links = [...demoLinks];
   document.getElementById('userEmailChip').textContent = 'demo@nexcard.app';
+  await loadEvents();
   showApp();
   renderAll();
   toast('👋 Demo mode — changes won\'t be saved');
@@ -704,6 +777,7 @@ async function launchApp() {
   document.getElementById('userEmailChip').textContent = currentUser.email;
   await loadProfile();
   await loadLeads();
+  await loadEvents();
   showApp();
   renderAll();
   checkConfigWarnings();
@@ -785,15 +859,18 @@ async function loadLeads() {
 async function saveLead(andEnrich = false) {
   const name = document.getElementById('scanName').value.trim();
   if (!name) { toast('Please enter a name'); return; }
+  const rawTags = document.getElementById('scanTags')?.value || '';
+  const tags = rawTags.split(',').map(t => t.trim()).filter(Boolean);
+  const eventId = document.getElementById('scanEvent')?.value || activeEventId || null;
   const lead = {
     name, company: document.getElementById('scanCompany').value.trim(),
     email: document.getElementById('scanEmail').value.trim(),
     phone: document.getElementById('scanPhone').value.trim(),
     notes: document.getElementById('scanNotes').value.trim(),
-    status: 'new',
+    status: 'new', tags, event_id: eventId,
   };
 
-  if (!isDemoMode && sbClient &&currentUser) {
+  if (!isDemoMode && sbClient && currentUser) {
     const { data, error } = await sbClient.from('leads').insert({ ...lead, user_id: currentUser.id }).select().single();
     if (error) { toast('❌ ' + error.message); return; }
     leads.unshift(data);
@@ -1020,22 +1097,49 @@ function removeLink(i) { links.splice(i,1); renderLinksEditor(); renderCard(); }
 
 function renderLeads() {
   const el = document.getElementById('leadsList');
-  if (!leads.length) {
-    el.innerHTML = '<p style="color:var(--muted);text-align:center;padding:40px 0">No leads yet. Add your first connection!</p>';
+  let filtered = leads;
+  if (filterEventId) filtered = filtered.filter(l => l.event_id === filterEventId);
+  if (filterTag)     filtered = filtered.filter(l => (l.tags||[]).includes(filterTag));
+
+  if (!filtered.length) {
+    el.innerHTML = `<p style="color:var(--muted);text-align:center;padding:40px 0">${filterEventId || filterTag ? 'No leads match this filter.' : 'No leads yet. Add your first connection!'}</p>`;
     return;
   }
-  el.innerHTML = leads.map((l,i) => `
-    <div class="lead-card" onclick="openLead(${i})">
+
+  // Collect all tags for filter bar
+  const allTags = [...new Set(leads.flatMap(l => l.tags||[]))];
+  const fb = document.getElementById('filterBar');
+  if (fb) {
+    fb.innerHTML = `<span style="font-size:0.8rem;color:var(--muted);font-weight:600">Tags:</span>` +
+      (allTags.length ? allTags.map(t => `<span class="filter-chip ${filterTag===t?'active':''}" onclick="setTagFilter('${t}')">${t}</span>`).join('') : '<span style="color:var(--muted);font-size:0.8rem">None yet</span>') +
+      (filterTag ? `<span class="filter-chip" onclick="setTagFilter(null)" style="color:var(--danger);border-color:var(--danger)">✕ Clear</span>` : '');
+  }
+
+  el.innerHTML = filtered.map((l, i) => {
+    const realIdx = leads.indexOf(l);
+    const evt = events.find(e => e.id === l.event_id);
+    const tags = (l.tags||[]).map(t => `<span class="tag-chip">${t}</span>`).join('');
+    return `<div class="lead-card" onclick="openLead(${realIdx})">
       <div class="lead-avatar">${l.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
-      <div style="flex:1">
+      <div style="flex:1;min-width:0">
         <div class="lead-name">${l.name}</div>
         <div class="lead-detail">${[l.company, l.email].filter(Boolean).join(' · ')}</div>
-        ${l.enriched_data ? `<div style="font-size:0.72rem;color:var(--warn);margin-top:2px">✨ Enriched</div>` : ''}
+        ${evt ? `<div style="font-size:0.72rem;color:var(--accent);margin-top:2px">📅 ${evt.name}</div>` : ''}
+        ${tags ? `<div style="margin-top:4px">${tags}</div>` : ''}
       </div>
       <div style="text-align:right;flex-shrink:0">
-        <span class="lead-badge badge-${l.status === 'enriched' ? 'enriched' : l.status === 'new' ? 'new' : 'saved'}">${l.status === 'enriched' ? '✨ Enriched' : l.status === 'new' ? '🟢 New' : '✓ Saved'}</span>
+        <span class="lead-badge badge-${l.status==='enriched'?'enriched':l.status==='new'?'new':'saved'}">${l.status==='enriched'?'✨':l.status==='new'?'🟢 New':'✓'}</span>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+
+  updateEventStats();
+  renderEventsSidebar();
+}
+
+function setTagFilter(tag) {
+  filterTag = tag;
+  renderLeads();
 }
 
 function openLead(i) {
@@ -1226,6 +1330,148 @@ function toast(msg) {
     await launchApp();
   }
 })();
+
+// ════════════════════════════════════════
+// EVENTS & TAGS
+// ════════════════════════════════════════
+let events = [];
+let activeEventId = null; // currently "live" event (new leads go here)
+let filterEventId = null; // currently filtered event in view
+let filterTag = null;
+
+async function loadEvents() {
+  if (!isDemoMode && sbClient && currentUser) {
+    const { data } = await sbClient.from('events').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false });
+    events = data || [];
+  } else {
+    events = [
+      { id: 'demo_evt1', name: 'CES 2026', location: 'Las Vegas, NV', event_date: '2026-01-07' },
+      { id: 'demo_evt2', name: 'DemoDay NYC', location: 'New York, NY', event_date: '2026-03-15' },
+    ];
+  }
+  renderEventsSidebar();
+  populateEventDropdown();
+}
+
+async function createEvent() {
+  const name = document.getElementById('newEventName').value.trim();
+  if (!name) { toast('Event name is required'); return; }
+  const evt = {
+    name,
+    location: document.getElementById('newEventLocation').value.trim() || null,
+    event_date: document.getElementById('newEventDate').value || null,
+  };
+
+  if (!isDemoMode && sbClient && currentUser) {
+    const { data, error } = await sbClient.from('events').insert({ ...evt, user_id: currentUser.id }).select().single();
+    if (error) { toast('❌ ' + error.message); return; }
+    events.unshift(data);
+    activeEventId = data.id;
+  } else {
+    evt.id = 'evt_' + Date.now();
+    events.unshift(evt);
+    activeEventId = evt.id;
+  }
+
+  closeModal();
+  ['newEventName','newEventLocation','newEventDate'].forEach(id => document.getElementById(id).value = '');
+  renderEventsSidebar();
+  populateEventDropdown();
+  filterEventId = activeEventId;
+  renderLeads();
+  toast('✅ Event created & set as live!');
+}
+
+function renderEventsSidebar() {
+  const sb = document.getElementById('eventsSidebar');
+  if (!events.length) {
+    sb.innerHTML = '<p style="color:var(--muted);font-size:0.8rem;text-align:center;padding:8px 0">No events yet</p>';
+    return;
+  }
+  sb.innerHTML = [
+    // "All" option
+    `<div class="event-chip ${!filterEventId ? 'active' : ''}" onclick="setEventFilter(null)">
+      <div>
+        <div class="event-name">🌐 All Leads</div>
+        <div class="event-meta">${leads.length} total</div>
+      </div>
+      <span class="event-count">${leads.length}</span>
+    </div>`,
+    ...events.map(e => {
+      const count = leads.filter(l => l.event_id === e.id).length;
+      const isLive = e.id === activeEventId;
+      const isFiltered = e.id === filterEventId;
+      return `<div class="event-chip ${isFiltered ? 'active' : ''} ${isLive ? 'is-live' : ''}" onclick="setEventFilter('${e.id}')">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="event-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.name}</div>
+            ${isLive ? '<span class="live-badge">LIVE</span>' : ''}
+          </div>
+          <div class="event-meta">${e.location || ''}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+          <span class="event-count">${count}</span>
+          ${!isLive ? `<button style="background:none;border:none;color:var(--muted);font-size:0.68rem;cursor:pointer;white-space:nowrap" onclick="event.stopPropagation();setLiveEvent('${e.id}')">Set Live</button>` : ''}
+        </div>
+      </div>`;
+    })
+  ].join('');
+}
+
+function setEventFilter(eventId) {
+  filterEventId = eventId;
+  filterTag = null;
+  renderLeads();
+  renderEventsSidebar();
+  updateEventStats();
+
+  const exportBtn = document.getElementById('exportEventBtn');
+  if (exportBtn) exportBtn.style.display = eventId ? 'block' : 'none';
+
+  const subtitle = document.getElementById('leadsSubtitle');
+  if (eventId) {
+    const evt = events.find(e => e.id === eventId);
+    subtitle.textContent = `Showing leads from: ${evt?.name || 'Event'}`;
+  } else {
+    subtitle.textContent = 'All leads across all events.';
+  }
+}
+
+function setLiveEvent(id) {
+  activeEventId = id;
+  renderEventsSidebar();
+  populateEventDropdown();
+  const evt = events.find(e => e.id === id);
+  toast(`🟢 Now collecting leads for: ${evt?.name}`);
+}
+
+function updateEventStats() {
+  const statsEl = document.getElementById('eventStats');
+  if (!filterEventId) { statsEl.style.display = 'none'; return; }
+  const evtLeads = leads.filter(l => l.event_id === filterEventId);
+  statsEl.style.display = 'block';
+  document.getElementById('evtTotal').textContent = evtLeads.length;
+  document.getElementById('evtEnriched').textContent = evtLeads.filter(l => l.status === 'enriched').length;
+  document.getElementById('evtNew').textContent = evtLeads.filter(l => l.status === 'new').length;
+}
+
+function populateEventDropdown() {
+  const sel = document.getElementById('scanEvent');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— No event —</option>' +
+    events.map(e => `<option value="${e.id}" ${e.id === activeEventId ? 'selected' : ''}>${e.name}${e.id === activeEventId ? ' 🟢' : ''}</option>`).join('');
+}
+
+function exportEventCSV() {
+  const evt = events.find(e => e.id === filterEventId);
+  const evtLeads = leads.filter(l => l.event_id === filterEventId);
+  const h = 'Name,Company,Email,Phone,Tags,Notes,Status\n';
+  const r = evtLeads.map(l => `"${l.name}","${l.company||''}","${l.email||''}","${l.phone||''}","${(l.tags||[]).join(',')}","${l.notes||''}","${l.status||''}"`).join('\n');
+  const a = document.createElement('a');
+  a.download = `${evt?.name.replace(/\s/g,'_') || 'event'}-leads.csv`;
+  a.href = URL.createObjectURL(new Blob([h+r],{type:'text/csv'})); a.click();
+  toast(`📊 Exported ${evtLeads.length} leads from ${evt?.name}`);
+}
 
 // ════════════════════════════════════════
 // SCANNER — QR + OCR
