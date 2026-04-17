@@ -1729,16 +1729,42 @@ async function handleCardImage(e) {
           fill.style.width = Math.round(m.progress * 100) + '%';
           status.textContent = `Reading card… ${Math.round(m.progress * 100)}%`;
         }
-      }
+      },
+      tessedit_pageseg_mode: '6',   // treat as single uniform text block
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,@()+-&\''
     });
 
     progress.style.display = 'none';
     const parsed = parseBusinessCard(text);
     const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-    // Build tappable line chips from cleaned OCR lines
-    // Tapping a chip fills whichever field the user last focused
-    const chipLines = (parsed._rawLines || []).filter(l => l.length > 2);
+    // Clean each OCR line before showing as a chip:
+    // 1. Strip leading non-letter characters (numbers, pipes, punctuation from noise)
+    // 2. If line contains a pipe, take the longest segment
+    // 3. Keep only lines where ≥55% of characters are letters (filters background noise)
+    function cleanChipLine(raw) {
+      let s = raw.trim();
+      // Take longest segment split by pipe/dash runs
+      if (/[|]/.test(s)) {
+        const segs = s.split(/[|]+/).map(x => x.trim()).filter(x => x.length > 1);
+        s = segs.sort((a,b) => b.length - a.length)[0] || s;
+      }
+      // Strip leading junk (non-letter chars except spaces)
+      s = s.replace(/^[^a-zA-Z]+/, '').trim();
+      // Strip trailing junk
+      s = s.replace(/[^a-zA-Z0-9)]+$/, '').trim();
+      return s;
+    }
+    function letterRatio(s) {
+      const letters = (s.match(/[a-zA-Z]/g) || []).length;
+      return s.length ? letters / s.length : 0;
+    }
+
+    const chipLines = (parsed._rawLines || [])
+      .map(cleanChipLine)
+      .filter(l => l.length >= 3 && letterRatio(l) >= 0.55)
+      // Deduplicate near-identical chips
+      .filter((l, i, arr) => !arr.slice(0,i).some(prev => prev.toLowerCase() === l.toLowerCase()));
     const chips = chipLines.map(l =>
       `<button type="button" onclick="ocrFillField('${esc(l)}')"
         style="background:var(--surface2);border:1px solid var(--border);border-radius:20px;
