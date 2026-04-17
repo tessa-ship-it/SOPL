@@ -449,9 +449,37 @@
 
           <!-- 1. ENRICHMENT (top) -->
           <div class="panel">
-            <div id="badgeScanNotice" style="display:none;background:rgba(124,92,252,0.12);border:1px solid rgba(124,92,252,0.35);border-radius:10px;padding:10px 14px;font-size:0.82rem;color:var(--accent);margin-bottom:14px;line-height:1.5"></div>
+
+            <!-- Badge scan result card — shown after every QR scan -->
+            <div id="badgeScanCard" style="display:none;margin-bottom:18px;background:rgba(124,92,252,0.08);border:1px solid rgba(124,92,252,0.3);border-radius:14px;padding:16px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <div style="font-weight:700;font-size:0.9rem;color:var(--accent)">🏷️ Badge Scanned — Review &amp; Enrich</div>
+                <button onclick="document.getElementById('badgeScanCard').style.display='none'" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem;line-height:1">✕</button>
+              </div>
+              <div id="badgeScanRaw" style="font-size:0.75rem;color:var(--muted);margin-bottom:10px;word-break:break-all"></div>
+              <div class="form-grid" style="margin-bottom:10px">
+                <div class="form-group">
+                  <label>Name</label>
+                  <input type="text" id="badgeName" placeholder="Full name"/>
+                </div>
+                <div class="form-group">
+                  <label>Email</label>
+                  <input type="email" id="badgeEmail" placeholder="email@company.com"/>
+                </div>
+                <div class="form-group">
+                  <label>Company</label>
+                  <input type="text" id="badgeCompany" placeholder="Company name"/>
+                </div>
+                <div class="form-group">
+                  <label>Title</label>
+                  <input type="text" id="badgeTitle" placeholder="Job title"/>
+                </div>
+              </div>
+              <button class="btn btn-primary" style="width:100%" onclick="enrichFromBadge()">⚡ Enrich with Apollo</button>
+            </div>
+
             <div class="panel-title">✨ Apollo Enrichment</div>
-            <p style="color:var(--muted);font-size:0.82rem;margin-bottom:14px;line-height:1.55">Look up anyone by email or name to pull their LinkedIn, title, and company — then save them as a lead. Also works with scanned conference badges.</p>
+            <p style="color:var(--muted);font-size:0.82rem;margin-bottom:14px;line-height:1.55">Look up anyone by email or name to pull their LinkedIn, title, and company — then save them as a lead.</p>
             <div class="form-grid">
               <div class="form-group">
                 <label>Email <span style="color:var(--success)">★ best</span> or Full Name</label>
@@ -1439,7 +1467,8 @@ function exportEventCSV() {
 // SCANNER — QR + OCR
 // ════════════════════════════════════════
 let html5QrScanner = null;
-let lastBadgeScan  = null; // stores last parsed QR result so onclick doesn't need to serialize it
+let lastBadgeScan  = null; // stores last parsed QR result
+let lastBadgeExtra = {};   // extra fields from badge card not in enrichInput
 let scanMode = 'qr';
 
 function openScanner(mode) {
@@ -1459,124 +1488,138 @@ function setScanMode(mode) {
 
 // ── Badge QR parser ──────────────────────────────────────────
 function parseQRContent(raw) {
-  const text = raw.trim();
+  const text = (raw || '').trim();
 
-  // 1. vCard (BEGIN:VCARD ... END:VCARD)
+  // 1. vCard
   if (/^BEGIN:VCARD/i.test(text)) {
     const get = (field) => {
-      const m = text.match(new RegExp(`^${field}[^:]*:(.*)$`, 'im'));
-      return m ? m[1].trim().replace(/\\n/g, ' ').replace(/\\,/g, ',') : '';
+      const m = text.match(new RegExp('^' + field + '[^:\\r\\n]*:([^\\r\\n]*)', 'im'));
+      return m ? m[1].trim() : '';
     };
-    const fullName = get('FN') || [get('N').split(';').slice(0,2).reverse().join(' ')].join('').trim();
+    const fn = get('FN');
+    const n  = get('N'); // Last;First;Middle;;
+    const parts = n.split(';');
+    const fromN = [parts[1], parts[0]].filter(Boolean).join(' ').trim();
     return {
-      format: 'vCard',
-      name:    fullName,
+      format:  'vCard',
+      name:    fn || fromN,
       email:   get('EMAIL'),
       company: get('ORG').split(';')[0],
       title:   get('TITLE'),
       phone:   get('TEL'),
-      url:     get('URL'),
     };
   }
 
-  // 2. MECARD (MECARD:N:Lastname,Firstname;EMAIL:...;;)
+  // 2. MECARD
   if (/^MECARD:/i.test(text)) {
-    const get = (field) => {
-      const m = text.match(new RegExp(`${field}:([^;]+)`));
-      return m ? m[1].trim() : '';
-    };
-    const rawName = get('N');
-    const parts   = rawName.split(',');
-    const name    = parts.length >= 2 ? `${parts[1].trim()} ${parts[0].trim()}` : rawName;
+    const get = (field) => { const m = text.match(new RegExp(field + ':([^;]+)')); return m ? m[1].trim() : ''; };
+    const raw = get('N'); const p = raw.split(',');
     return {
-      format: 'MECARD',
-      name,
+      format:  'MECARD',
+      name:    p.length >= 2 ? (p[1].trim() + ' ' + p[0].trim()) : raw,
       email:   get('EMAIL'),
       company: get('ORG'),
-      title:   get('TITLE') || get('ADR'),
+      title:   get('TITLE'),
       phone:   get('TEL'),
-      url:     '',
     };
   }
 
-  // 3. LinkedIn URL
-  const liMatch = text.match(/linkedin\.com\/in\/([^/?#]+)/i);
-  if (liMatch) {
-    const slug = liMatch[1];
-    // Convert slug (john-doe-123abc) → human name best-guess
-    const namePart = slug.replace(/-[a-z0-9]{6,}$/i, '').replace(/-/g, ' ');
-    const name = namePart.replace(/\b\w/g, c => c.toUpperCase());
-    return { format: 'LinkedIn', name, email: '', company: '', title: '', phone: '', url: text };
+  // 3. LinkedIn URL — convert slug to name
+  const li = text.match(/linkedin\.com\/in\/([^/?#\s]+)/i);
+  if (li) {
+    const slug = li[1].replace(/-[a-z0-9]{4,}$/i, '').replace(/-/g, ' ');
+    return { format: 'LinkedIn', name: slug.replace(/\b\w/g, c => c.toUpperCase()), email: '', company: '', title: '', phone: '' };
   }
 
-  // 4. Plain URL (conference platform, etc.)
+  // 4. URL — try to pull contact fields from query string
   if (/^https?:\/\//i.test(text)) {
-    return { format: 'URL', name: '', email: '', company: '', title: '', phone: '', url: text };
+    try {
+      const u = new URL(text);
+      const p = u.searchParams;
+      const pick = (...keys) => keys.map(k => p.get(k)).find(v => v) || '';
+      const firstName = pick('firstName','first_name','fname','given_name');
+      const lastName  = pick('lastName','last_name','lname','family_name');
+      const name      = pick('name','fullName','full_name','displayName') || [firstName, lastName].filter(Boolean).join(' ');
+      const email     = pick('email','emailAddress','email_address');
+      const company   = pick('company','organization','org','employer');
+      const title     = pick('title','jobTitle','job_title','position');
+      const phone     = pick('phone','phoneNumber','phone_number','mobile');
+      return { format: 'URL', name, email, company, title, phone };
+    } catch(e) {}
+    return { format: 'URL', name: '', email: '', company: '', title: '', phone: '', _raw: text };
   }
 
-  // 5. Plain text — treat as name
-  return { format: 'Text', name: text, email: '', company: '', title: '', phone: '', url: '' };
+  // 5. Plain text — use as-is (might be a name, might be an ID)
+  return { format: 'Text', name: text, email: '', company: '', title: '', phone: '', _raw: text };
 }
 
 function applyBadgeScan() {
   try {
-  const parsed = lastBadgeScan;
-  if (!parsed) { toast('No badge scan data found — please scan again.'); return; }
+    const parsed = lastBadgeScan;
+    if (!parsed) { toast('No scan data — try again.'); return; }
 
-  dismissScanner();
-  switchView('leads');
+    dismissScanner();
+    switchView('leads');
 
-  // Determine what's usable for Apollo:
-  // - Email is best, use it alone
-  // - Clean name (letters/spaces/hyphens/apostrophes only) + optional company
-  // - LinkedIn slug → use the guessed name
-  // - Opaque URL or numeric-heavy text → nothing usable, ask user to type manually
-  const cleanName = (parsed.name || '').trim();
-  const looksLikeName = cleanName && /^[a-zA-ZÀ-ÿ '\-\.]+$/.test(cleanName) && cleanName.length < 60;
+    // Pre-fill the badge scan card fields
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+    setVal('badgeName',    parsed.name);
+    setVal('badgeEmail',   parsed.email);
+    setVal('badgeCompany', parsed.company);
+    setVal('badgeTitle',   parsed.title);
 
-  const enrichInputEl   = document.getElementById('enrichInput');
-  const enrichCompanyEl = document.getElementById('enrichCompany');
-
-  if (parsed.format === 'URL' && !parsed.email && !looksLikeName) {
-    // Opaque conference URL — can't extract useful data
-    const notice = document.getElementById('badgeScanNotice');
-    if (notice) {
-      notice.innerHTML = `⚠️ This badge QR links to a conference portal — no contact info could be extracted. Please type the person's name or email below and enrich manually.`;
-      notice.style.display = 'block';
-      setTimeout(() => { notice.style.display = 'none'; }, 12000);
+    // Show what the raw QR contained (so user knows what was detected)
+    const rawEl = document.getElementById('badgeScanRaw');
+    if (rawEl) {
+      const hasData = parsed.name || parsed.email || parsed.company;
+      if (hasData) {
+        rawEl.textContent = '';
+        rawEl.style.display = 'none';
+      } else {
+        rawEl.textContent = 'QR contained: ' + (parsed._raw || '(no readable contact info — fill in manually)');
+        rawEl.style.display = 'block';
+      }
     }
-    if (enrichInputEl) enrichInputEl.value = '';
-    if (enrichCompanyEl) enrichCompanyEl.value = '';
-    return;
-  }
 
-  // Pre-fill fields with clean data only
-  if (enrichInputEl)  enrichInputEl.value  = parsed.email || (looksLikeName ? cleanName : '');
-  if (enrichCompanyEl) enrichCompanyEl.value = parsed.company || '';
+    // Show the card and scroll it into view
+    const card = document.getElementById('badgeScanCard');
+    if (card) {
+      card.style.display = 'block';
+      setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }
 
-  // Show badge notice with extra details (title, phone, etc.)
-  const notice = document.getElementById('badgeScanNotice');
-  if (notice) {
-    const extras = [
-      parsed.title && parsed.title,
-      parsed.phone && parsed.phone,
-      (parsed.url && parsed.format !== 'URL') && `<a href="${parsed.url}" target="_blank" style="color:var(--accent)">Profile ↗</a>`,
-    ].filter(Boolean).join(' · ');
-    notice.innerHTML = `🏷️ <b>${parsed.format} badge scanned</b>${extras ? ' — ' + extras : ''}`;
-    notice.style.display = 'block';
-    setTimeout(() => { notice.style.display = 'none'; }, 10000);
-  }
-
-  // Always auto-run enrichment — user just hits Save when results look good
-  runEnrichment();
+    // If we got enough to enrich immediately, do it — otherwise wait for user to fill gaps
+    if (parsed.email || (parsed.name && parsed.company)) {
+      enrichFromBadge();
+    }
 
   } catch(err) {
     console.error('applyBadgeScan error:', err);
-    toast('⚠️ Badge scan error: ' + (err.message || err));
-    // Make sure modal is closed even if something went wrong
+    toast('⚠️ Scan error: ' + (err.message || String(err)));
     try { dismissScanner(); } catch(e) {}
     try { switchView('leads'); } catch(e) {}
   }
+}
+
+async function enrichFromBadge() {
+  const name    = (document.getElementById('badgeName')?.value    || '').trim();
+  const email   = (document.getElementById('badgeEmail')?.value   || '').trim();
+  const company = (document.getElementById('badgeCompany')?.value || '').trim();
+  const title   = (document.getElementById('badgeTitle')?.value   || '').trim();
+
+  const searchVal = email || name;
+  if (!searchVal) { toast('Add a name or email first'); document.getElementById('badgeName')?.focus(); return; }
+
+  // Mirror into main enrichment fields so doEnrich reads them correctly
+  const inputEl   = document.getElementById('enrichInput');
+  const companyEl = document.getElementById('enrichCompany');
+  if (inputEl)   inputEl.value   = searchVal;
+  if (companyEl) companyEl.value = company;
+
+  // Store extra fields for saveEnrichedLead to pick up
+  lastBadgeExtra = { title, phone: document.getElementById('badgeTitle')?.dataset?.phone || '' };
+
+  await doEnrich(searchVal, company, null, true);
 }
 
 function startQRScanner() {
