@@ -1439,6 +1439,7 @@ function exportEventCSV() {
 // SCANNER — QR + OCR
 // ════════════════════════════════════════
 let html5QrScanner = null;
+let lastBadgeScan  = null; // stores last parsed QR result so onclick doesn't need to serialize it
 let scanMode = 'qr';
 
 function openScanner(mode) {
@@ -1517,7 +1518,10 @@ function parseQRContent(raw) {
   return { format: 'Text', name: text, email: '', company: '', title: '', phone: '', url: '' };
 }
 
-function applyBadgeScan(parsed) {
+function applyBadgeScan() {
+  const parsed = lastBadgeScan;
+  if (!parsed) { toast('No badge scan data found — please scan again.'); return; }
+
   // Close scanner, switch to Leads tab, pre-fill enrichment panel
   dismissScanner();
   switchView(2); // Leads
@@ -1566,17 +1570,19 @@ function startQRScanner() {
     (decodedText) => {
       stopQRScanner();
       const parsed   = parseQRContent(decodedText);
+      lastBadgeScan  = parsed; // store globally — avoids serialization issues in onclick
       const resultEl = document.getElementById('qrResult');
       resultEl.style.display = 'block';
 
-      // Build preview card
+      // Build preview card — escape values for safe HTML display
+      const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const rows = [
-        parsed.name    && `<div><b>Name:</b> ${parsed.name}</div>`,
-        parsed.email   && `<div><b>Email:</b> ${parsed.email}</div>`,
-        parsed.company && `<div><b>Company:</b> ${parsed.company}</div>`,
-        parsed.title   && `<div><b>Title:</b> ${parsed.title}</div>`,
-        parsed.phone   && `<div><b>Phone:</b> ${parsed.phone}</div>`,
-        parsed.url     && `<div><b>URL:</b> <a href="${parsed.url}" target="_blank" style="color:var(--accent)">${parsed.url.slice(0,50)}…</a></div>`,
+        parsed.name    && `<div><b>Name:</b> ${esc(parsed.name)}</div>`,
+        parsed.email   && `<div><b>Email:</b> ${esc(parsed.email)}</div>`,
+        parsed.company && `<div><b>Company:</b> ${esc(parsed.company)}</div>`,
+        parsed.title   && `<div><b>Title:</b> ${esc(parsed.title)}</div>`,
+        parsed.phone   && `<div><b>Phone:</b> ${esc(parsed.phone)}</div>`,
+        parsed.url     && `<div><b>URL:</b> <a href="${esc(parsed.url)}" target="_blank" style="color:var(--accent)">${esc(parsed.url.slice(0,60))}</a></div>`,
       ].filter(Boolean).join('');
 
       const formatBadge = {
@@ -1586,9 +1592,9 @@ function startQRScanner() {
 
       resultEl.innerHTML = `
         <div style="color:var(--success);font-weight:700;margin-bottom:6px">✅ ${formatBadge} scanned!</div>
-        <div style="font-size:0.82rem;line-height:1.7;margin-bottom:12px">${rows || `<span style="color:var(--muted)">${decodedText.slice(0,120)}</span>`}</div>
+        <div style="font-size:0.82rem;line-height:1.7;margin-bottom:12px">${rows || `<span style="color:var(--muted)">${esc(decodedText.slice(0,120))}</span>`}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="applyBadgeScan(${JSON.stringify(parsed).replace(/"/g,'&quot;')})">⚡ Enrich This Lead</button>
+          <button class="btn btn-primary" onclick="applyBadgeScan()">⚡ Enrich This Lead</button>
           <button class="btn btn-outline" onclick="startQRScanner()">Scan Again</button>
         </div>`;
     },
