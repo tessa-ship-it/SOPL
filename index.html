@@ -1686,9 +1686,9 @@ function preprocessImageForOCR(file) {
       for (let i = 0; i < d.length; i += 4) {
         // Greyscale via luminance
         const grey = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-        // Hard binary threshold: eliminates holographic/patterned badge backgrounds
-        // Dark text on white → pure black; light backgrounds → pure white
-        const bw = grey < 160 ? 0 : 255;
+        // Hard binary threshold: eliminates holographic/patterned badge backgrounds.
+        // Raised to 180 so medium-grey noise (holograms, blue headers) also becomes white.
+        const bw = grey < 180 ? 0 : 255;
         d[i] = d[i+1] = d[i+2] = bw;
       }
       ctx.putImageData(imageData, 0, 0);
@@ -1734,28 +1734,55 @@ async function handleCardImage(e) {
 
     progress.style.display = 'none';
     const parsed = parseBusinessCard(text);
+    const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    // Build tappable line chips from cleaned OCR lines
+    // Tapping a chip fills whichever field the user last focused
+    const chipLines = (parsed._rawLines || []).filter(l => l.length > 2);
+    const chips = chipLines.map(l =>
+      `<button type="button" onclick="ocrFillField('${esc(l)}')"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:20px;
+               padding:5px 12px;font-size:0.78rem;color:var(--text);cursor:pointer;
+               white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis"
+        title="${esc(l)}">${esc(l.length > 40 ? l.slice(0,38)+'…' : l)}</button>`
+    ).join('');
 
     result.style.display = 'block';
     result.innerHTML = `
-      <div style="color:var(--success);font-weight:700;margin-bottom:12px">✅ Card read — review and correct below</div>
+      <div style="color:var(--success);font-weight:700;margin-bottom:4px">✅ Scanned — tap a line to fill a field</div>
+      <div style="color:var(--muted);font-size:0.78rem;margin-bottom:12px">Tap a field to select it, then tap a detected line to fill it in.</div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;padding:10px;background:var(--surface2);border-radius:10px">
+        ${chips || '<span style="color:var(--muted);font-size:0.8rem">No text detected — try a clearer photo</span>'}
+      </div>
+
       <div class="form-grid" style="margin-bottom:16px">
-        <div class="form-group"><label>Name</label><input type="text" id="ocrName" value="${esc(parsed.name)}"/></div>
-        <div class="form-group"><label>Company</label><input type="text" id="ocrCompany" value="${esc(parsed.company)}"/></div>
-        <div class="form-group"><label>Email</label><input type="email" id="ocrEmail" value="${esc(parsed.email)}"/></div>
-        <div class="form-group"><label>Phone</label><input type="tel" id="ocrPhone" value="${esc(parsed.phone)}"/></div>
-        <div class="form-group full"><label>Title</label><input type="text" id="ocrTitle" value="${esc(parsed.title)}"/></div>
+        <div class="form-group">
+          <label>Name <span id="ocrFocusBadge-ocrName" style="font-size:0.7rem;color:var(--accent);display:none">← filling here</span></label>
+          <input type="text" id="ocrName" value="${esc(parsed.name)}" onfocus="ocrSetFocus('ocrName')" placeholder="Tap a line above"/>
+        </div>
+        <div class="form-group">
+          <label>Company <span id="ocrFocusBadge-ocrCompany" style="font-size:0.7rem;color:var(--accent);display:none">← filling here</span></label>
+          <input type="text" id="ocrCompany" value="${esc(parsed.company)}" onfocus="ocrSetFocus('ocrCompany')" placeholder="Tap a line above"/>
+        </div>
+        <div class="form-group">
+          <label>Email <span id="ocrFocusBadge-ocrEmail" style="font-size:0.7rem;color:var(--accent);display:none">← filling here</span></label>
+          <input type="email" id="ocrEmail" value="${esc(parsed.email)}" onfocus="ocrSetFocus('ocrEmail')" placeholder="Tap a line above"/>
+        </div>
+        <div class="form-group">
+          <label>Phone <span id="ocrFocusBadge-ocrPhone" style="font-size:0.7rem;color:var(--accent);display:none">← filling here</span></label>
+          <input type="tel" id="ocrPhone" value="${esc(parsed.phone)}" onfocus="ocrSetFocus('ocrPhone')" placeholder="Tap a line above"/>
+        </div>
+        <div class="form-group full">
+          <label>Title <span id="ocrFocusBadge-ocrTitle" style="font-size:0.7rem;color:var(--accent);display:none">← filling here</span></label>
+          <input type="text" id="ocrTitle" value="${esc(parsed.title)}" onfocus="ocrSetFocus('ocrTitle')" placeholder="Tap a line above"/>
+        </div>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="saveOCRLead()">💾 Save as Lead</button>
-        <button class="btn btn-outline" onclick="enrichOCRLead()">✨ Save & Enrich</button>
+        <button class="btn btn-outline" onclick="enrichOCRLead()">✨ Save &amp; Enrich</button>
         <button class="btn btn-outline" onclick="resetOCR()">📷 Scan Another</button>
-      </div>
-      <details style="font-size:0.75rem;color:var(--muted)">
-        <summary style="cursor:pointer">Raw OCR text (tap to see if fields look wrong)</summary>
-        <div style="margin-top:6px;background:var(--surface2);border-radius:8px;padding:10px;line-height:1.6;white-space:pre-wrap">${esc((parsed._rawLines||[]).join('\n'))}</div>
-      </details>`;
+      </div>`;
   } catch(err) {
     progress.style.display = 'none';
     result.style.display = 'block';
@@ -1782,8 +1809,9 @@ function parseBusinessCard(text) {
   const TITLE_KW   = /\b(CEO|CTO|CFO|COO|CMO|CRO|VP|Vice[\s-]President|SVP|EVP|Director|Manager|Engineer|Designer|Founder|President|Head of|Lead|Senior|Junior|Analyst|Consultant|Officer|Partner|Associate|Executive|Specialist|Strategist|Developer|Architect|Advisor|Representative|Account Exec)\b/i;
   const COMPANY_KW = /\b(Inc\.?|LLC|Ltd\.?|Corp\.?|Co\.|PLC|Group|Solutions|Technologies|Technology|Communications|Services|Consulting|Systems|Partners|Associates|Ventures|Holdings|Media|Agency|Studio|Labs|Digital|Global|International|Worldwide|Software|Networks?|Brands?|Enterprises?)\b/i;
 
-  // A single word that could be half a name: capitalized, letters only, 2–20 chars
-  function isNameWord(w) { return /^[A-Za-z\-']{2,20}$/.test(w); }
+  // A single word that could be part of a name: letters/hyphens only, 3–20 chars.
+  // Minimum 3 chars rejects 2-letter OCR noise like "Sd", "Ta", "Rn", etc.
+  function isNameWord(w) { return /^[A-Za-z\-']{3,20}$/.test(w); }
 
   // A line that looks like a complete person name: 2-4 words, no digits, no keyword match
   function looksLikeName(l) {
@@ -1839,6 +1867,27 @@ function parseBusinessCard(text) {
     phone:     phoneMatch ? phoneMatch[0].trim() : '',
     _rawLines: allLines,
   };
+}
+
+// Track which OCR field is currently focused for chip-tap filling
+let _ocrFocusedField = 'ocrName';
+function ocrSetFocus(fieldId) {
+  _ocrFocusedField = fieldId;
+  // Show "← filling here" badge on the active field, hide others
+  ['ocrName','ocrCompany','ocrEmail','ocrPhone','ocrTitle'].forEach(id => {
+    const badge = document.getElementById('ocrFocusBadge-' + id);
+    if (badge) badge.style.display = id === fieldId ? 'inline' : 'none';
+  });
+}
+function ocrFillField(text) {
+  const el = document.getElementById(_ocrFocusedField);
+  if (!el) return;
+  el.value = text;
+  el.focus();
+  // Auto-advance focus to the next empty field
+  const order = ['ocrName','ocrCompany','ocrEmail','ocrPhone','ocrTitle'];
+  const next = order.find(id => id !== _ocrFocusedField && !(document.getElementById(id)?.value));
+  if (next) ocrSetFocus(next);
 }
 
 async function saveOCRLead(andEnrich = false) {
