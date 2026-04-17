@@ -424,7 +424,9 @@
 
     <!-- ── LEADS ── -->
     <div class="view" id="view-leads">
-      <div class="leads-header">
+
+      <!-- Page header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px">
         <div>
           <h1 style="font-size:1.55rem;font-weight:800;margin-bottom:4px">Leads & Connections</h1>
           <p style="color:var(--muted);font-size:0.88rem" id="leadsSubtitle">All leads across all events.</p>
@@ -432,35 +434,13 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-outline" onclick="openScanner('qr')">📷 Scan QR</button>
           <button class="btn btn-outline" onclick="openScanner('ocr')">📇 Scan Card</button>
-          <button class="btn btn-primary" onclick="toggleScanForm()">+ Add Lead</button>
         </div>
       </div>
 
-      <!-- Add Lead Form -->
-      <div id="scanForm" style="display:none" class="panel" style="margin-bottom:20px;max-width:760px">
-        <div class="section-label">New Lead</div>
-        <div class="form-grid">
-          <div class="form-group"><label>Name *</label><input type="text" id="scanName" placeholder="Alex Smith"/></div>
-          <div class="form-group"><label>Company</label><input type="text" id="scanCompany" placeholder="Startup Inc."/></div>
-          <div class="form-group"><label>Email</label><input type="email" id="scanEmail" placeholder="alex@startup.io"/></div>
-          <div class="form-group"><label>Phone</label><input type="tel" id="scanPhone" placeholder="+1 555 000 1234"/></div>
-          <div class="form-group"><label>Event</label>
-            <select id="scanEvent"><option value="">— No event —</option></select>
-          </div>
-          <div class="form-group"><label>Tags (comma separated)</label><input type="text" id="scanTags" placeholder="vip, follow-up, investor"/></div>
-          <div class="form-group full"><label>Notes</label><textarea id="scanNotes" placeholder="Where you met, what to follow up on..."></textarea></div>
-        </div>
-        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="saveLead()">Save Lead</button>
-          <button class="btn btn-outline" onclick="enrichFromForm()">✨ Save & Enrich</button>
-          <button class="btn btn-outline" onclick="toggleScanForm()">Cancel</button>
-        </div>
-      </div>
-
-      <!-- Main layout: Events sidebar + leads list + enrichment panel -->
+      <!-- Two-column layout -->
       <div class="leads-layout">
 
-        <!-- Events Sidebar -->
+        <!-- LEFT: Events sidebar -->
         <div>
           <div class="events-panel">
             <div class="panel-title">📅 Events</div>
@@ -469,15 +449,29 @@
           </div>
         </div>
 
-        <!-- Center: filter bar + leads list + enrichment -->
-        <div>
-          <!-- Filter bar -->
-          <div class="filter-bar" id="filterBar">
-            <span style="font-size:0.8rem;color:var(--muted);font-weight:600">Filter:</span>
+        <!-- RIGHT: Everything else -->
+        <div style="display:flex;flex-direction:column;gap:16px">
+
+          <!-- 1. ENRICHMENT (top) -->
+          <div class="panel">
+            <div class="panel-title">✨ Apollo Enrichment</div>
+            <p style="color:var(--muted);font-size:0.82rem;margin-bottom:14px;line-height:1.55">Look up anyone by email or name to pull their LinkedIn, title, and company — then save them as a lead.</p>
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Email <span style="color:var(--success)">★ best</span> or Full Name</label>
+                <input type="text" id="enrichInput" placeholder="alex@company.com"/>
+              </div>
+              <div class="form-group">
+                <label>Company <span style="color:var(--warn)">(helps name-only searches)</span></label>
+                <input type="text" id="enrichCompany" placeholder="Acme Corp"/>
+              </div>
+            </div>
+            <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="runEnrichment()">✨ Enrich Now</button>
+            <div id="enrichResult" style="display:none;margin-top:14px"></div>
           </div>
 
-          <!-- Stats strip for active event -->
-          <div id="eventStats" style="display:none;margin-bottom:16px">
+          <!-- 2. EVENT STATS (shown when event is selected) -->
+          <div id="eventStats" style="display:none">
             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
               <div class="stat-card"><div class="stat-num" id="evtTotal">0</div><div class="stat-label">Total Leads</div></div>
               <div class="stat-card"><div class="stat-num" id="evtEnriched">0</div><div class="stat-label">Enriched</div></div>
@@ -485,29 +479,49 @@
             </div>
           </div>
 
+          <!-- 3. TAG FILTER BAR -->
+          <div class="filter-bar" id="filterBar"></div>
+
+          <!-- 4. LEADS LIST -->
           <div class="leads-list" id="leadsList">
-            <p style="color:var(--muted);text-align:center;padding:40px 0">No leads yet. Add your first connection!</p>
+            <p style="color:var(--muted);text-align:center;padding:40px 0">No leads yet. Add your first!</p>
           </div>
 
-          <!-- Enrichment + Export -->
-          <div style="margin-top:20px;display:flex;flex-direction:column;gap:14px">
-            <div class="panel">
-              <div class="panel-title">✨ Apollo Enrichment</div>
-              <p style="color:var(--muted);font-size:0.82rem;margin-bottom:14px;line-height:1.55">Enter an email or name to pull LinkedIn, job title, company info via Apollo.io.</p>
-              <div class="form-group"><label>Email <span style="color:var(--success)">★ best</span> or Full Name</label><input type="text" id="enrichInput" placeholder="alex@company.com"/></div>
-              <div class="form-group"><label>Company <span style="color:var(--warn)">(required for name-only searches)</span></label><input type="text" id="enrichCompany" placeholder="Acme Corp"/></div>
-              <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="runEnrichment()">✨ Enrich Now</button>
-              <div id="enrichResult" style="display:none;margin-top:14px"></div>
+          <!-- 5. MANUAL ADD FORM (bottom) -->
+          <div class="panel">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <div class="panel-title" style="margin:0">➕ Add Lead Manually</div>
+              <button class="btn-sm btn-outline" onclick="toggleScanForm()" id="manualFormToggle">Expand</button>
             </div>
-            <div class="panel">
-              <div class="panel-title">Export</div>
-              <div style="display:flex;flex-direction:column;gap:8px">
-                <button class="btn btn-outline" style="width:100%;text-align:left" onclick="exportCSV()">📊 Export All Leads (CSV)</button>
-                <button class="btn btn-outline" style="width:100%;text-align:left" id="exportEventBtn" style="display:none" onclick="exportEventCSV()">📊 Export This Event (CSV)</button>
-                <button class="btn btn-outline" style="width:100%;text-align:left" onclick="toast('🔗 CRM sync coming soon!')">🔗 Sync to CRM</button>
+            <div id="scanForm" style="display:none">
+              <div class="form-grid">
+                <div class="form-group"><label>Name *</label><input type="text" id="scanName" placeholder="Alex Smith"/></div>
+                <div class="form-group"><label>Company</label><input type="text" id="scanCompany" placeholder="Startup Inc."/></div>
+                <div class="form-group"><label>Email</label><input type="email" id="scanEmail" placeholder="alex@startup.io"/></div>
+                <div class="form-group"><label>Phone</label><input type="tel" id="scanPhone" placeholder="+1 555 000 1234"/></div>
+                <div class="form-group"><label>Event</label>
+                  <select id="scanEvent"><option value="">— No event —</option></select>
+                </div>
+                <div class="form-group"><label>Tags (comma separated)</label><input type="text" id="scanTags" placeholder="vip, follow-up, investor"/></div>
+                <div class="form-group full"><label>Notes</label><textarea id="scanNotes" placeholder="Where you met, what to follow up on..."></textarea></div>
+              </div>
+              <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-primary" onclick="saveLead()">Save Lead</button>
+                <button class="btn btn-outline" onclick="enrichFromForm()">✨ Save & Enrich</button>
               </div>
             </div>
           </div>
+
+          <!-- 6. EXPORT -->
+          <div class="panel">
+            <div class="panel-title">Export</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <button class="btn btn-outline" style="width:100%;text-align:left" onclick="exportCSV()">📊 Export All Leads (CSV)</button>
+              <button class="btn btn-outline" style="width:100%;text-align:left;display:none" id="exportEventBtn" onclick="exportEventCSV()">📊 Export This Event (CSV)</button>
+              <button class="btn btn-outline" style="width:100%;text-align:left" onclick="toast('🔗 CRM sync coming soon!')">🔗 Sync to CRM</button>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -596,7 +610,7 @@ create policy "Own leads" on leads for all using (auth.uid() = user_id);</pre>
     <div class="form-group" style="margin-bottom:12px"><label>Location</label><input type="text" id="newEventLocation" placeholder="Las Vegas, NV"/></div>
     <div class="form-group" style="margin-bottom:20px"><label>Date</label><input type="date" id="newEventDate"/></div>
     <div class="modal-actions">
-      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-outline" style="flex:1" onclick="dismissModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveNewEvent()">Create & Go Live</button>
     </div>
   </div>
@@ -611,7 +625,7 @@ create policy "Own leads" on leads for all using (auth.uid() = user_id);</pre>
         <button class="scanner-tab active" onclick="setScanMode('qr')">QR Code</button>
         <button class="scanner-tab" onclick="setScanMode('ocr')">Business Card</button>
       </div>
-      <button class="btn-sm btn-outline" onclick="closeScanner()">✕ Close</button>
+      <button class="btn-sm btn-outline" onclick="dismissScanner()">✕ Close</button>
     </div>
 
     <!-- QR Mode -->
@@ -647,7 +661,7 @@ create policy "Own leads" on leads for all using (auth.uid() = user_id);</pre>
     <h2>💾 Save Contact</h2>
     <p>Download a .vcf file you can import to any phone or contact app.</p>
     <div class="modal-actions">
-      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-outline" style="flex:1" onclick="dismissModal()">Cancel</button>
       <button class="btn btn-primary" onclick="downloadVCard()">Download .vcf</button>
     </div>
   </div>
@@ -659,7 +673,7 @@ create policy "Own leads" on leads for all using (auth.uid() = user_id);</pre>
     <div id="lmBody" style="color:var(--muted);font-size:0.86rem;line-height:1.6;margin-bottom:20px"></div>
     <div class="modal-actions">
       <button class="btn btn-danger" onclick="deleteLead()">🗑 Delete</button>
-      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Close</button>
+      <button class="btn btn-outline" style="flex:1" onclick="dismissModal()">Close</button>
       <button class="btn btn-primary" onclick="exportLeadVCard()">💾 Save Contact</button>
     </div>
   </div>
@@ -889,13 +903,43 @@ async function saveLead(andEnrich = false) {
 
 function enrichFromForm() { saveLead(true); }
 
+async function saveEnrichedLead(enriched) {
+  const eventId = document.getElementById('enrichSaveEvent')?.value || activeEventId || null;
+  const lead = {
+    name:    enriched.fullName || 'Unknown',
+    company: enriched.company || '',
+    email:   enriched.email   || '',
+    phone:   '',
+    notes:   `Added via Apollo enrichment`,
+    status:  'enriched',
+    event_id: eventId || null,
+    tags:    [],
+    enriched_data: enriched,
+  };
+  if (!isDemoMode && sbClient && currentUser) {
+    const { data, error } = await sbClient.from('leads').insert({ ...lead, user_id: currentUser.id }).select().single();
+    if (error) { toast('❌ ' + error.message); return; }
+    leads.unshift(data);
+  } else {
+    lead.id = 'enr_' + Date.now();
+    leads.unshift(lead);
+  }
+  renderLeads();
+  updateLeadStat();
+  document.getElementById('enrichResult').style.display = 'none';
+  document.getElementById('enrichInput').value = '';
+  document.getElementById('enrichCompany').value = '';
+  const evt = events.find(e => e.id === eventId);
+  toast(`✅ ${lead.name} saved${evt ? ' to ' + evt.name : ''}!`);
+}
+
 async function deleteLead() {
   if (!selectedLeadId) return;
   if (!isDemoMode && sbClient &&currentUser) {
     await sbClient.from('leads').delete().eq('id', selectedLeadId);
   }
   leads = leads.filter(l => l.id !== selectedLeadId);
-  closeModal(); renderLeads(); updateLeadStat();
+  dismissModal(); renderLeads(); updateLeadStat();
   toast('🗑 Lead deleted');
 }
 
@@ -979,6 +1023,7 @@ async function doEnrich(input, company, leadId, showInPanel = false) {
     }
 
     const hasData = enriched.title || enriched.company || enriched.email || enriched.linkedin;
+    const eventOpts = events.map(e => `<option value="${e.id}" ${e.id === activeEventId ? 'selected' : ''}>${e.name}</option>`).join('');
     const html = `<div class="enrich-result">
       <div style="font-size:0.88rem;font-weight:700;color:var(--success);margin-bottom:10px">✓ Match found via Apollo</div>
       ${row('Name', enriched.fullName)}
@@ -989,7 +1034,13 @@ async function doEnrich(input, company, leadId, showInPanel = false) {
       ${row('Location', [enriched.city, enriched.country].filter(Boolean).join(', ') || '—')}
       ${row('Seniority', enriched.seniority)}
       ${enriched.twitter ? row('Twitter', `<a href="${enriched.twitter}" target="_blank" style="color:var(--accent)">${enriched.twitter}</a>`) : ''}
-      ${!hasData ? `<div style="margin-top:10px;padding:10px;background:rgba(245,158,11,0.1);border-radius:8px;font-size:0.8rem;color:var(--warn)">⚠️ Apollo matched this person but returned limited data. This can happen with name-only searches — try searching by email for full results.</div>` : ''}
+      ${!hasData ? `<div style="margin-top:10px;padding:10px;background:rgba(245,158,11,0.1);border-radius:8px;font-size:0.8rem;color:var(--warn)">⚠️ Limited data returned — try email for full results.</div>` : ''}
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="enrichSaveEvent" style="flex:1;min-width:140px;font-size:0.82rem;padding:8px 10px">
+          <option value="">— No event —</option>${eventOpts}
+        </select>
+        <button class="btn btn-primary" style="white-space:nowrap" onclick="saveEnrichedLead(${JSON.stringify(enriched).replace(/"/g,'&quot;')})">💾 Save as Lead</button>
+      </div>
     </div>`;
 
     if (showInPanel) resultEl.innerHTML = html;
@@ -1168,7 +1219,7 @@ function exportLeadVCard() {
   const vc = `BEGIN:VCARD\nVERSION:3.0\nFN:${l.name}\nORG:${l.company||''}\nEMAIL:${l.email||''}\nTEL:${l.phone||''}\nNOTE:${l.notes||''}\nEND:VCARD`;
   const a = document.createElement('a'); a.download = `${l.name.replace(/\s/g,'_')}.vcf`;
   a.href = URL.createObjectURL(new Blob([vc],{type:'text/vcard'})); a.click();
-  closeModal(); toast('💾 Contact saved!');
+  dismissModal(); toast('💾 Contact saved!');
 }
 
 function updateLeadStat() {
@@ -1207,7 +1258,7 @@ function buildVCard() {
 function downloadVCard() {
   const a = document.createElement('a'); a.download = `${profile.firstName||'card'}_${profile.lastName||''}.vcf`;
   a.href = URL.createObjectURL(new Blob([buildVCard()],{type:'text/vcard'})); a.click();
-  closeModal(); toast('💾 Contact saved!');
+  dismissModal(); toast('💾 Contact saved!');
 }
 
 // ════════════════════════════════════════
@@ -1290,9 +1341,12 @@ function switchView(id) {
 }
 
 function toggleScanForm() {
-  const f = document.getElementById('scanForm');
-  f.style.display = f.style.display === 'none' ? 'block' : 'none';
-  if (f.style.display === 'block') f.scrollIntoView({ behavior:'smooth' });
+  const f   = document.getElementById('scanForm');
+  const btn = document.getElementById('manualFormToggle');
+  const open = f.style.display === 'none';
+  f.style.display = open ? 'block' : 'none';
+  if (btn) btn.textContent = open ? 'Collapse' : 'Expand';
+  if (open) f.scrollIntoView({ behavior:'smooth', block:'nearest' });
 }
 
 function exportCSV() {
@@ -1304,8 +1358,8 @@ function exportCSV() {
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
-function closeModal() { document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('open')); }
-document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)closeModal();}));
+function dismissModal() { document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('open')); }
+document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)dismissModal();}));
 
 function toast(msg) {
   const t = document.getElementById('toastEl'); t.textContent = msg; t.classList.add('show');
@@ -1373,7 +1427,7 @@ async function saveNewEvent() {
     activeEventId = evt.id;
   }
 
-  closeModal();
+  dismissModal();
   ['newEventName','newEventLocation','newEventDate'].forEach(id => document.getElementById(id).value = '');
   renderEventsSidebar();
   populateEventDropdown();
@@ -1539,14 +1593,16 @@ function stopQRScanner() {
   }
 }
 
-function closeScanner() {
-  stopQRScanner();
-  closeModal();
-  // Reset OCR pane
-  document.getElementById('ocrResult').style.display = 'none';
-  document.getElementById('ocrProgress').style.display = 'none';
-  document.getElementById('ocrPreview').style.display = 'none';
-  document.getElementById('cardImageInput').value = '';
+function dismissScanner() {
+  try { stopQRScanner(); } catch(e) {}
+  try {
+    document.getElementById('ocrResult').style.display = 'none';
+    document.getElementById('ocrProgress').style.display = 'none';
+    document.getElementById('ocrPreview').style.display = 'none';
+    document.getElementById('ocrDrop').style.display = 'flex';
+    document.getElementById('cardImageInput').value = '';
+  } catch(e) {}
+  document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('open'));
 }
 
 // ── OCR ──
@@ -1659,7 +1715,7 @@ async function saveOCRLead(andEnrich = false) {
   }
 
   renderLeads(); updateLeadStat();
-  closeScanner();
+  dismissScanner();
   switchView('leads');
   toast('✅ Lead saved from card scan!');
 }
