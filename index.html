@@ -644,19 +644,20 @@
     </div>
 
     <!-- QR Live Scan Mode -->
-    <div id="qrScanPane" style="padding:0;position:relative;background:#000">
-      <div id="qr-reader" style="width:100%"></div>
-      <!-- Targeting overlay -->
-      <div id="qrOverlay" style="position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;align-items:center;justify-content:center">
-        <div style="width:220px;height:220px;position:relative">
-          <!-- Corner markers -->
-          <div style="position:absolute;top:0;left:0;width:36px;height:36px;border-top:3px solid var(--accent);border-left:3px solid var(--accent);border-radius:4px 0 0 0"></div>
-          <div style="position:absolute;top:0;right:0;width:36px;height:36px;border-top:3px solid var(--accent);border-right:3px solid var(--accent);border-radius:0 4px 0 0"></div>
-          <div style="position:absolute;bottom:0;left:0;width:36px;height:36px;border-bottom:3px solid var(--accent);border-left:3px solid var(--accent);border-radius:0 0 0 4px"></div>
-          <div style="position:absolute;bottom:0;right:0;width:36px;height:36px;border-bottom:3px solid var(--accent);border-right:3px solid var(--accent);border-radius:0 0 4px 0"></div>
-        </div>
-        <div style="margin-top:16px;color:#fff;font-size:0.85rem;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,0.8);text-align:center;padding:0 24px">
-          Point at the QR code on the badge
+    <div id="qrScanPane" style="padding:0;background:#000;display:flex;flex-direction:column">
+      <!-- Overlay wraps ONLY the video so corners are always aligned to the feed -->
+      <div style="position:relative;width:100%;background:#000;flex-shrink:0">
+        <div id="qr-reader" style="width:100%"></div>
+        <div id="qrOverlay" style="position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <div style="width:200px;height:200px;position:relative">
+            <div style="position:absolute;top:0;left:0;width:32px;height:32px;border-top:3px solid var(--accent);border-left:3px solid var(--accent);border-radius:4px 0 0 0"></div>
+            <div style="position:absolute;top:0;right:0;width:32px;height:32px;border-top:3px solid var(--accent);border-right:3px solid var(--accent);border-radius:0 4px 0 0"></div>
+            <div style="position:absolute;bottom:0;left:0;width:32px;height:32px;border-bottom:3px solid var(--accent);border-left:3px solid var(--accent);border-radius:0 0 0 4px"></div>
+            <div style="position:absolute;bottom:0;right:0;width:32px;height:32px;border-bottom:3px solid var(--accent);border-right:3px solid var(--accent);border-radius:0 0 4px 0"></div>
+          </div>
+          <div style="margin-top:14px;color:#fff;font-size:0.82rem;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,0.9);text-align:center;padding:0 20px">
+            Point at the QR code on the badge
+          </div>
         </div>
       </div>
       <div id="qrResult" style="display:none;padding:16px;background:var(--surface)" class="ocr-result"></div>
@@ -1058,6 +1059,18 @@ async function doEnrich(input, company, leadId, showInPanel = false) {
       twitter:     p.twitter_url || '',
       photo:       p.photo_url || '',
     };
+
+    // If the badge scan card is visible, back-fill any empty fields from Apollo result
+    if (document.getElementById('badgeScanCard')?.style.display !== 'none') {
+      const fillIfEmpty = (id, val) => {
+        const el = document.getElementById(id);
+        if (el && !el.value && val) el.value = val;
+      };
+      fillIfEmpty('badgeName',    enriched.fullName);
+      fillIfEmpty('badgeEmail',   enriched.email);
+      fillIfEmpty('badgeCompany', enriched.company);
+      fillIfEmpty('badgeTitle',   enriched.title);
+    }
 
     // Save enriched data to Supabase
     if (!isDemoMode && sbClient &&currentUser && leadId) {
