@@ -1564,6 +1564,46 @@ function setScanMode(mode) {
 function parseQRContent(raw) {
   const text = (raw || '').trim();
 
+  // 0. Caret-delimited badge format — used by Cvent, Experient, and many others
+  //    Pattern: [BadgeID]^[FirstName]^[LastName]^[Company]^[Title]^[Email]^[Phone]^...
+  //    Example: 1765813550100001u2Rc^Clinton^Karr^Ramsey Communications^VP^c@ramsey.com^
+  if (text.includes('^')) {
+    const parts = text.split('^').map(p => p.trim());
+    // parts[0] is typically a badge ID (skip it)
+    // Detect if parts[1] and [2] look like a first + last name
+    const p1 = parts[1] || '', p2 = parts[2] || '', p3 = parts[3] || '';
+    const looksLikeName = p1.length > 1 && p2.length > 1 &&
+      /^[A-Za-z\-']+$/.test(p1) && /^[A-Za-z\-']+$/.test(p2);
+
+    if (looksLikeName) {
+      // Standard: ID ^ First ^ Last ^ Company ^ Title ^ Email ^ Phone
+      const email = parts.slice(4).find(p => p.includes('@')) || '';
+      const title = parts[4] && !parts[4].includes('@') ? parts[4] : '';
+      const phone = parts.slice(4).find(p => /\d{7,}/.test(p.replace(/\D/g,''))) || '';
+      return {
+        format: 'Badge (QR)',
+        name:    `${p1} ${p2}`.trim(),
+        email,
+        company: p3,
+        title,
+        phone,
+      };
+    }
+
+    // Fallback: might be ID ^ FullName ^ Company ^ Title ^ Email
+    if (p1.includes(' ') && /^[A-Za-z\s\-']+$/.test(p1)) {
+      const email = parts.slice(2).find(p => p.includes('@')) || '';
+      return {
+        format: 'Badge (QR)',
+        name:    p1,
+        email,
+        company: p2,
+        title:   parts[3] || '',
+        phone:   '',
+      };
+    }
+  }
+
   // 1. vCard
   if (/^BEGIN:VCARD/i.test(text)) {
     const get = (field) => {
