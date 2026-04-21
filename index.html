@@ -624,7 +624,21 @@
     <p>Create an event to group leads from the same show or conference.</p>
     <div class="form-group" style="margin-bottom:12px"><label>Event Name *</label><input type="text" id="newEventName" placeholder="CES 2026"/></div>
     <div class="form-group" style="margin-bottom:12px"><label>Location</label><input type="text" id="newEventLocation" placeholder="Las Vegas, NV"/></div>
-    <div class="form-group" style="margin-bottom:20px"><label>Date</label><input type="date" id="newEventDate"/></div>
+    <div class="form-group" style="margin-bottom:16px"><label>Date</label><input type="date" id="newEventDate"/></div>
+    <div class="form-group" style="margin-bottom:20px">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">
+        <div style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
+          <input type="checkbox" id="newEventShared" style="opacity:0;width:0;height:0;position:absolute">
+          <span id="newEventSharedTrack" style="position:absolute;inset:0;background:#444;border-radius:12px;transition:background 0.2s;cursor:pointer" onclick="this.previousElementSibling.checked=!this.previousElementSibling.checked;document.getElementById('newEventSharedThumb').style.transform=this.previousElementSibling.checked?'translateX(20px)':'translateX(2px)';this.style.background=this.previousElementSibling.checked?'var(--accent)':'#444'">
+            <span id="newEventSharedThumb" style="position:absolute;top:2px;left:0;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform 0.2s;transform:translateX(2px)"></span>
+          </span>
+        </div>
+        <div>
+          <div style="font-weight:600;font-size:0.9rem">Team Event</div>
+          <div style="font-size:0.75rem;color:var(--muted)">All @straiker.ai members can view, add & edit leads</div>
+        </div>
+      </label>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" style="flex:1" onclick="dismissModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveNewEvent()">Create & Go Live</button>
@@ -912,7 +926,8 @@ const demoLeads = [
 
 async function loadLeads() {
   if (!sbClient|| !currentUser) return;
-  const { data } = await sbClient.from('leads').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false });
+  // RLS handles visibility: own leads + leads in shared events
+  const { data } = await sbClient.from('leads').select('*').order('created_at', { ascending: false });
   leads = data || [];
 }
 
@@ -931,7 +946,7 @@ async function saveLead(andEnrich = false) {
   };
 
   if (!isDemoMode && sbClient && currentUser) {
-    const { data, error } = await sbClient.from('leads').insert({ ...lead, user_id: currentUser.id }).select().single();
+    const { data, error } = await sbClient.from('leads').insert({ ...lead, user_id: currentUser.id, scanned_by: currentUser.email }).select().single();
     if (error) { toast('❌ ' + error.message); return; }
     leads.unshift(data);
     if (andEnrich) await doEnrich(data.email || name, lead.company, data.id);
@@ -963,7 +978,7 @@ async function saveEnrichedLead(enriched) {
     enriched_data: enriched,
   };
   if (!isDemoMode && sbClient && currentUser) {
-    const { data, error } = await sbClient.from('leads').insert({ ...lead, user_id: currentUser.id }).select().single();
+    const { data, error } = await sbClient.from('leads').insert({ ...lead, user_id: currentUser.id, scanned_by: currentUser.email }).select().single();
     if (error) { toast('❌ ' + error.message); return; }
     leads.unshift(data);
   } else {
@@ -1227,6 +1242,7 @@ function renderLeads() {
   el.innerHTML = filtered.map((l, i) => {
     const realIdx = leads.indexOf(l);
     const evt = events.find(e => e.id === l.event_id);
+    const isTeamLead = evt?.is_shared && l.scanned_by && l.scanned_by !== currentUser?.email;
     const tags = (l.tags||[]).map(t => `<span class="tag-chip">${t}</span>`).join('');
     return `<div class="lead-card" onclick="openLead(${realIdx})">
       <div class="lead-avatar">${l.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
@@ -1234,6 +1250,7 @@ function renderLeads() {
         <div class="lead-name">${l.name}</div>
         <div class="lead-detail">${[l.company, l.email].filter(Boolean).join(' · ')}</div>
         ${evt ? `<div style="font-size:0.72rem;color:var(--accent);margin-top:2px">📅 ${evt.name}</div>` : ''}
+        ${isTeamLead ? `<div style="font-size:0.68rem;color:var(--muted);margin-top:2px">👤 ${l.scanned_by}</div>` : ''}
         ${tags ? `<div style="margin-top:4px">${tags}</div>` : ''}
       </div>
       <div style="text-align:right;flex-shrink:0">
@@ -1255,7 +1272,10 @@ function openLead(i) {
   const l = leads[i];
   selectedLead = l; selectedLeadId = l.id;
   document.getElementById('lmName').textContent = l.name;
+  const leadEvt = events.find(e => e.id === l.event_id);
   let body = `<b>${l.company||'—'}</b><br>${l.email||''} ${l.phone ? '· '+l.phone : ''}`;
+  if (leadEvt) body += `<br><span style="font-size:0.8rem;color:var(--accent)">📅 ${leadEvt.name}${leadEvt.is_shared ? ' · <span style="color:var(--muted)">👥 Team Event</span>' : ''}</span>`;
+  if (l.scanned_by && l.scanned_by !== currentUser?.email) body += `<br><span style="font-size:0.75rem;color:var(--muted)">Scanned by ${l.scanned_by}</span>`;
   if (l.notes) body += `<br><br><i>${l.notes}</i>`;
   if (l.enriched_data) {
     const e = l.enriched_data;
@@ -1417,7 +1437,8 @@ let filterTag = null;
 
 async function loadEvents() {
   if (!isDemoMode && sbClient && currentUser) {
-    const { data } = await sbClient.from('events').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false });
+    // RLS handles visibility: own events + all shared events
+    const { data } = await sbClient.from('events').select('*').order('created_at', { ascending: false });
     events = data || [];
   } else {
     events = [
@@ -1432,10 +1453,12 @@ async function loadEvents() {
 async function saveNewEvent() {
   const name = document.getElementById('newEventName').value.trim();
   if (!name) { toast('Event name is required'); return; }
+  const isShared = document.getElementById('newEventShared')?.checked || false;
   const evt = {
     name,
     location: document.getElementById('newEventLocation').value.trim() || null,
     event_date: document.getElementById('newEventDate').value || null,
+    is_shared: isShared,
   };
 
   if (!isDemoMode && sbClient && currentUser) {
@@ -1450,7 +1473,10 @@ async function saveNewEvent() {
   }
 
   dismissModal();
+  // Reset modal fields including team toggle
   ['newEventName','newEventLocation','newEventDate'].forEach(id => document.getElementById(id).value = '');
+  const sharedCb = document.getElementById('newEventShared');
+  if (sharedCb) { sharedCb.checked = false; document.getElementById('newEventSharedTrack').style.background='#444'; document.getElementById('newEventSharedThumb').style.transform='translateX(2px)'; }
   renderEventsSidebar();
   populateEventDropdown();
   filterEventId = activeEventId;
@@ -1477,11 +1503,13 @@ function renderEventsSidebar() {
       const count = leads.filter(l => l.event_id === e.id).length;
       const isLive = e.id === activeEventId;
       const isFiltered = e.id === filterEventId;
+      const isShared = e.is_shared;
       return `<div class="event-chip ${isFiltered ? 'active' : ''} ${isLive ? 'is-live' : ''}" onclick="setEventFilter('${e.id}')">
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:center;gap:6px">
             <div class="event-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.name}</div>
             ${isLive ? '<span class="live-badge">LIVE</span>' : ''}
+            ${isShared ? '<span style="font-size:0.62rem;background:rgba(124,92,252,0.18);color:var(--accent);border-radius:6px;padding:1px 5px;font-weight:700;flex-shrink:0">TEAM</span>' : ''}
           </div>
           <div class="event-meta">${e.location || ''}</div>
         </div>
@@ -2074,7 +2102,7 @@ async function saveOCRLead(andEnrich = false) {
   };
 
   if (!isDemoMode && sbClient && currentUser) {
-    const { data, error } = await sbClient.from('leads').insert({ ...lead, user_id: currentUser.id }).select().single();
+    const { data, error } = await sbClient.from('leads').insert({ ...lead, user_id: currentUser.id, scanned_by: currentUser.email }).select().single();
     if (error) { toast('❌ ' + error.message); return; }
     leads.unshift(data);
     if (andEnrich && lead.email) await doEnrich(lead.email, lead.company, data.id);
